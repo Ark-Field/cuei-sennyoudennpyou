@@ -161,7 +161,8 @@ for record_idx, r in enumerate(api_records):
             "印字数": h_print_qty,
             "預かり数": h_deposit,
             "配本日": parse_date_safe(rec_90.get("field-90_1")),
-            "納品日": parse_date_safe(rec_88.get("field-88_2")),
+            "予定日": parse_date_safe(rec_90.get("field-90_8")),  # ★検索・予定日の軸（field-90_8）
+            "納品日": parse_date_safe(rec_88.get("field-88_2")),  # ★確定納品日（field-88_2）
             "納品数": str(rec_88.get("field-88_4", "")),
             "摘要": str(rec_88.get("field-88_5", "")),
             "在庫納品": bool(rec_88.get("field-88_6", False)),
@@ -218,7 +219,8 @@ with tab1:
                 "印字数": st.column_config.TextColumn("印字数", disabled=True),
                 "預かり数": st.column_config.TextColumn("預かり数", disabled=True),
                 "配本日": st.column_config.DateColumn("配本日", format="YYYY-MM-DD"),
-                "納品日": st.column_config.DateColumn("納品日", format="YYYY-MM-DD"),
+                "予定日": st.column_config.DateColumn("予定日(90_8)", format="YYYY-MM-DD", disabled=True),
+                "納品日": st.column_config.DateColumn("確定納品日(88_2)", format="YYYY-MM-DD"),
                 "納品数": st.column_config.TextColumn("納品数"),
                 "摘要": st.column_config.TextColumn("摘要"),
                 "在庫納品": st.column_config.CheckboxColumn("在庫納品"),
@@ -309,14 +311,16 @@ with tab2:
     
     col_t2_1, col_t2_2 = st.columns(2)
     with col_t2_1:
-        target_delivery_date = st.date_input("対象納品日を指定", value=date.today(), key="target_deliv_date")
+        target_delivery_date = st.date_input("対象予定日を指定 (field-90_8基準)", value=date.today(), key="target_deliv_date")
+    with col_t2_2:
+        auto_copy_delivery = st.checkbox("💡 予定日を確定納品日(88_2)へ自動転記して一括保存する", value=False)
     
     target_date_str = target_delivery_date.strftime("%Y-%m-%d")
     
-    # 選択した納品日に合致する明細を抽出（堅牢な日付一致判定）
+    # ★ field-90_8（予定日）を基準にして抽出
     day_delivery_rows = []
     for row in flat_data:
-        d_val = row.get("納品日")
+        d_val = row.get("予定日")
         if d_val:
             if isinstance(d_val, (date, datetime)):
                 d_str = d_val.strftime("%Y-%m-%d")
@@ -324,16 +328,19 @@ with tab2:
                 d_str = str(d_val).replace("/", "-").strip()[:10]
             
             if d_str == target_date_str:
+                # 自動転記チェックが有効な場合、確定納品日(納品日)に予定日をコピー
+                if auto_copy_delivery and (not row.get("納品日") or str(row.get("納品日")) == "NaT"):
+                    row["納品日"] = target_delivery_date
                 day_delivery_rows.append(row)
             
     if day_delivery_rows:
         df_day = pd.DataFrame(day_delivery_rows)
-        st.success(f"✨ 納品日【 {target_date_str} 】の明細データが **{len(df_day)} 件** あります。")
+        st.success(f"✨ 予定日【 {target_date_str} 】の明細データが **{len(df_day)} 件** あります。")
         
         st.subheader("📊 顧客別・便別 納品予定一覧")
         df_sorted = df_day.sort_values(by=["出版社名", "配車区分"])
         st.dataframe(
-            df_sorted[["出版社名", "配車区分", "受注番号", "書名", "納品数", "PL数", "見本数", "摘要"]],
+            df_sorted[["出版社名", "配車区分", "受注番号", "書名", "納品数", "PL数", "見本数", "摘要", "納品日"]],
             use_container_width=True
         )
         
@@ -372,7 +379,7 @@ with tab2:
                 'JpCell', parent=styles['Normal'], fontName=jp_font_name, fontSize=9, leading=12,
             )
 
-            story.append(Paragraph(f"<b>納品予定表 （納品日: {target_date_str}）</b>", title_style))
+            story.append(Paragraph(f"<b>納品予定表 （予定日: {target_date_str}）</b>", title_style))
             story.append(Spacer(1, 8*mm))
             
             grouped = df_day.groupby(["出版社名", "配車区分"])
@@ -423,4 +430,4 @@ with tab2:
                 type="primary"
             )
     else:
-        st.info(f"ℹ️ 納品日【 {target_date_str} 】に該当する納品データはありません。")
+        st.info(f"ℹ️ 予定日【 {target_date_str} 】（field-90_8）に該当するデータはありません。")
