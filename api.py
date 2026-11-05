@@ -6,6 +6,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import streamlit as st
 import copy
+import openpyxl
 
 # ReportLab関連（PDF出力用）
 from reportlab.lib.pagesizes import A4, landscape
@@ -497,93 +498,152 @@ with tab2:
         df_t2_flat = edited_t2_df
 
         st.divider()
-        st.subheader("🖨️ 各種出力（納品管理帳 ＆ 専用伝票）")
+        st.subheader("🖨️ 各種出力形式の選択（PDF ＆ Excel）")
+        
+        # 出力形式のセレクトボックスを追加
+        output_format = st.radio("出力形式を選択してください", ["PDFで出力する", "Excel (.xlsx) で出力する"], horizontal=True, key="out_fmt_select")
         
         col_out1, col_out2 = st.columns(2)
         
-        # --- ① 納品管理帳（予定表）PDFの生成（A4横サイズ） ---
+        # ==========================================
+        # ① 納品管理帳（予定表）の出力（PDF or Excel）
+        # ==========================================
         with col_out1:
-            if st.button("🚀 顧客別・便別 納品管理帳(予定表)PDFを生成 [A4横]", type="secondary", key="btn_generate_schedule_pdf"):
-                buffer_sch = io.BytesIO()
-                doc_sch = SimpleDocTemplate(buffer_sch, pagesize=landscape(A4), rightMargin=15*mm, leftMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
-                story_sch = []
-                
-                styles = getSampleStyleSheet()
-                title_style = ParagraphStyle('JpTitle', parent=styles['Heading1'], fontName=JP_FONT, fontSize=15, leading=20, alignment=1)
-                heading_style = ParagraphStyle('JpHeading', parent=styles['Heading2'], fontName=JP_FONT, fontSize=11, leading=15)
-                cell_style = ParagraphStyle('JpCell', parent=styles['Normal'], fontName=JP_FONT, fontSize=8, leading=11)
-                cell_right = ParagraphStyle('JpCellR', parent=styles['Normal'], fontName=JP_FONT, fontSize=8, leading=11, alignment=2)
+            if output_format == "PDFで出力する":
+                if st.button("🚀 顧客別・便別 納品管理帳(予定表)PDFを生成 [A4横]", type="secondary", key="btn_generate_schedule_pdf"):
+                    buffer_sch = io.BytesIO()
+                    doc_sch = SimpleDocTemplate(buffer_sch, pagesize=landscape(A4), rightMargin=15*mm, leftMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
+                    story_sch = []
+                    
+                    styles = getSampleStyleSheet()
+                    title_style = ParagraphStyle('JpTitle', parent=styles['Heading1'], fontName=JP_FONT, fontSize=15, leading=20, alignment=1)
+                    heading_style = ParagraphStyle('JpHeading', parent=styles['Heading2'], fontName=JP_FONT, fontSize=11, leading=15)
+                    cell_style = ParagraphStyle('JpCell', parent=styles['Normal'], fontName=JP_FONT, fontSize=8, leading=11)
+                    cell_right = ParagraphStyle('JpCellR', parent=styles['Normal'], fontName=JP_FONT, fontSize=8, leading=11, alignment=2)
 
-                story_sch.append(Paragraph(f"<b>納品管理帳（予定表） （予定日: {target_date_str}）</b>", title_style))
-                story_sch.append(Spacer(1, 6*mm))
-                
-                for (pub, vehicle), group in df_t2_flat.groupby(["出版社名", "配車区分"]):
-                    story_sch.append(Paragraph(f"<b>■ 宛先（顧客）: {pub}  ／  配車便: {vehicle}</b>", heading_style))
-                    story_sch.append(Spacer(1, 2*mm))
+                    story_sch.append(Paragraph(f"<b>納品管理帳（予定表） （予定日: {target_date_str}）</b>", title_style))
+                    story_sch.append(Spacer(1, 6*mm))
                     
-                    table_data = [[
-                        Paragraph("<b>判型 / 書名 / ISBN</b>", cell_style),
-                        Paragraph("<b>刷回</b>", cell_style),
-                        Paragraph("<b>定価</b>", cell_style),
-                        Paragraph("<b>印刷部数</b>", cell_style),
-                        Paragraph("<b>納品部数</b>", cell_style),
-                        Paragraph("<b>見本</b>", cell_style),
-                        Paragraph("<b>総部数</b>", cell_style),
-                        Paragraph("<b>単価</b>", cell_style),
-                        Paragraph("<b>預り在庫</b>", cell_style),
-                        Paragraph("<b>売上(納品金額)</b>", cell_style)
-                    ]]
+                    groups = list(df_t2_flat.groupby(["出版社名", "配車区分"]))
+                    for idx, ((pub, vehicle), group) in enumerate(groups):
+                        story_sch.append(Paragraph(f"<b>■ 宛先（顧客）: {pub}  ／  配車便: {vehicle}</b>", heading_style))
+                        story_sch.append(Spacer(1, 2*mm))
+                        
+                        table_data = [[
+                            Paragraph("<b>判型 / 書名 / ISBN</b>", cell_style),
+                            Paragraph("<b>刷回</b>", cell_style),
+                            Paragraph("<b>定価</b>", cell_style),
+                            Paragraph("<b>印刷部数</b>", cell_style),
+                            Paragraph("<b>納品部数</b>", cell_style),
+                            Paragraph("<b>見本</b>", cell_style),
+                            Paragraph("<b>総部数</b>", cell_style),
+                            Paragraph("<b>単価</b>", cell_style),
+                            Paragraph("<b>預り在庫</b>", cell_style),
+                            Paragraph("<b>売上(納品金額)</b>", cell_style)
+                        ]]
+                        
+                        for _, row in group.iterrows():
+                            n_qty = safe_float(row.get("納品部数", 0))
+                            m_qty = safe_float(row.get("見本", 0))
+                            tanka = safe_float(row.get("単価", 0))
+                            total_qty = int(n_qty + m_qty)
+                            uriage = int(total_qty * tanka)
+
+                            format_val = row.get('判型', '')
+                            title_val = row.get('書名', '')
+                            isbn_val = row.get('ISBN', '')
+                            
+                            book_info_html = f"[{format_val}] {title_val}<br/>(ISBN: {isbn_val})"
+
+                            table_data.append([
+                                Paragraph(book_info_html, cell_style),
+                                Paragraph(str(row.get("刷回", "")), cell_style),
+                                Paragraph(str(row.get("定価", "")), cell_right),
+                                Paragraph(str(row.get("印刷部数", "")), cell_right),
+                                Paragraph(str(row.get("納品部数", "")), cell_right),
+                                Paragraph(str(row.get("見本", "")), cell_right),
+                                Paragraph(str(total_qty), cell_right),
+                                Paragraph(str(row.get("単価", "")), cell_right),
+                                Paragraph(str(row.get("預かり在庫", "")), cell_right),
+                                Paragraph(f"{uriage:,}", cell_right),
+                            ])
+                        
+                        schedule_table = Table(table_data, colWidths=[87*mm, 15*mm, 18*mm, 18*mm, 18*mm, 14*mm, 18*mm, 18*mm, 20*mm, 30*mm])
+                        schedule_table.setStyle(TableStyle([
+                            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                            ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+                            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                            ('TOPPADDING', (0,0), (-1,-1), 4),
+                            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                        ]))
+                        
+                        story_sch.append(schedule_table)
+                        story_sch.append(Spacer(1, 6*mm))
+                        
+                        is_iwanami = ("岩波" in pub)
+                        if is_iwanami and idx < len(groups) - 1:
+                            story_sch.append(PageBreak())
+
+                    doc_sch.build(story_sch)
+                    buffer_sch.seek(0)
                     
-                    for _, row in group.iterrows():
+                    st.download_button(
+                        label="📥 納品管理帳(予定表)PDFをダウンロード [A4横]",
+                        data=buffer_sch,
+                        file_name=f"納品管理帳_{target_date_str}.pdf",
+                        mime="application/pdf",
+                        key="dl_sch_pdf"
+                    )
+            else:
+                # Excel出力の処理
+                if st.button("🚀 顧客別・便別 納品管理帳(予定表)Excelを生成 [.xlsx]", type="secondary", key="btn_generate_schedule_xlsx"):
+                    wb = openpyxl.Workbook()
+                    ws = wb.active
+                    ws.title = "納品管理帳"
+                    
+                    headers = ["出版社名", "配車便", "判型", "書名", "ISBN", "刷回", "定価", "印刷部数", "納品部数", "見本", "総部数", "単価", "預り在庫", "売上(納品金額)", "予定日"]
+                    ws.append(headers)
+                    
+                    for _, row in df_t2_flat.iterrows():
                         n_qty = safe_float(row.get("納品部数", 0))
                         m_qty = safe_float(row.get("見本", 0))
                         tanka = safe_float(row.get("単価", 0))
                         total_qty = int(n_qty + m_qty)
                         uriage = int(total_qty * tanka)
-
-                        format_val = row.get('判型', '')
-                        title_val = row.get('書名', '')
-                        isbn_val = row.get('ISBN', '')
                         
-                        book_info_html = f"[{format_val}] {title_val}<br/>(ISBN: {isbn_val})"
-
-                        table_data.append([
-                            Paragraph(book_info_html, cell_style),
-                            Paragraph(str(row.get("刷回", "")), cell_style),
-                            Paragraph(str(row.get("定価", "")), cell_right),
-                            Paragraph(str(row.get("印刷部数", "")), cell_right),
-                            Paragraph(str(row.get("納品部数", "")), cell_right),
-                            Paragraph(str(row.get("見本", "")), cell_right),
-                            Paragraph(str(total_qty), cell_right),
-                            Paragraph(str(row.get("単価", "")), cell_right),
-                            Paragraph(str(row.get("預かり在庫", "")), cell_right),
-                            Paragraph(f"{uriage:,}", cell_right),
+                        ws.append([
+                            row.get("出版社名", ""),
+                            row.get("配車区分", ""),
+                            row.get("判型", ""),
+                            row.get("書名", ""),
+                            row.get("ISBN", ""),
+                            row.get("刷回", ""),
+                            safe_float(row.get("定価", 0)),
+                            safe_float(row.get("印刷部数", 0)),
+                            safe_float(row.get("納品部数", 0)),
+                            safe_float(row.get("見本", 0)),
+                            total_qty,
+                            tanka,
+                            safe_float(row.get("預かり在庫", 0)),
+                            uriage,
+                            target_date_str
                         ])
                     
-                    schedule_table = Table(table_data, colWidths=[87*mm, 15*mm, 18*mm, 18*mm, 18*mm, 14*mm, 18*mm, 18*mm, 20*mm, 30*mm])
-                    schedule_table.setStyle(TableStyle([
-                        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-                        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-                        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                        ('TOPPADDING', (0,0), (-1,-1), 4),
-                        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-                    ]))
+                    excel_buffer = io.BytesIO()
+                    wb.save(excel_buffer)
+                    excel_buffer.seek(0)
                     
-                    story_sch.append(schedule_table)
-                    story_sch.append(Spacer(1, 6*mm))
-                
-                doc_sch.build(story_sch)
-                buffer_sch.seek(0)
-                
-                st.download_button(
-                    label="📥 納品管理帳(予定表)PDFをダウンロード [A4横]",
-                    data=buffer_sch,
-                    file_name=f"納品管理帳_{target_date_str}.pdf",
-                    mime="application/pdf",
-                    key="dl_sch_pdf"
-                )
+                    st.download_button(
+                        label="📥 納品管理帳(予定表)Excelをダウンロード",
+                        data=excel_buffer,
+                        file_name=f"納品管理帳_{target_date_str}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_sch_xlsx"
+                    )
 
-        # --- ② 専用伝票PDFの生成（★ 項目名なし・罫線なし・9ポイント特化型） ---
+        # ==========================================
+        # ② 専用伝票の出力（PDF専用）
+        # ==========================================
         with col_out2:
             if st.button("🚀 【専用伝票】項目・罫線なし・9ptで生成", type="primary", key="btn_generate_slips"):
                 grouped = df_t2_flat.groupby(["出版社名", "配車区分"])
@@ -611,7 +671,6 @@ with tab2:
                 story_slip = []
                 
                 styles = getSampleStyleSheet()
-                # ユーザー様ご指定の文字サイズ「9ポイント」（leadingは12ptで設定）
                 slip_cell_style = ParagraphStyle('SlipCell9', parent=styles['Normal'], fontName=JP_FONT, fontSize=9, leading=12)
                 slip_header_style = ParagraphStyle('SlipHeader9', parent=styles['Normal'], fontName=JP_FONT, fontSize=9, leading=12)
                 
@@ -623,16 +682,12 @@ with tab2:
                     for i in range(0, len(items), CHUNK_SIZE):
                         chunk = items[i:i + CHUNK_SIZE]
                         
-                        # 支給伝票に印刷されているため、タイトルや宛先ヘッダーも控えめに9ptで位置合わせ用に配置（不要な場合は空に調整可能）
                         header_text = f"宛先: {pub}  便: {vehicle}  伝票No: {slip_no}  予定日: {target_date_str}"
                         story_slip.append(Paragraph(header_text, slip_header_style))
-                        story_slip.append(Spacer(1, 15*mm)) # 伝票のヘッダー位置に応じた微調整用スペース
+                        story_slip.append(Spacer(1, 15*mm))
                         
                         page_rows = []
-                        
-                        # ★ 項目名（ヘッダー行）は完全に排除し、純粋にデータ行のみを配置します
                         for item in chunk:
-                            # 行1データ：受注番号, 書名/判型/ISBN, 定価・刷回, 単価, 納品部数, PL数, 見本
                             row1 = [
                                 Paragraph(str(item.get("受注番号", "")), slip_cell_style),
                                 Paragraph(f"[{item.get('判型', '')}] {item.get('書名', '')} (ISBN: {item.get('ISBN', '')})", slip_cell_style),
@@ -642,7 +697,6 @@ with tab2:
                                 Paragraph(str(item.get("PL数", "")), slip_cell_style),
                                 Paragraph(str(item.get("見本", "")), slip_cell_style)
                             ]
-                            # 行2データ：摘要・備考、預かり在庫、在庫納品フラグなど
                             row2 = [
                                 Paragraph(str(item.get("摘要", "")), slip_cell_style),
                                 Paragraph(f"預:{item.get('預かり在庫', '')}", slip_cell_style),
@@ -657,7 +711,6 @@ with tab2:
                             
                         slip_table = Table(page_rows, colWidths=[25*mm, 65*mm, 20*mm, 15*mm, 15*mm, 12*mm, 13*mm])
                         slip_table.setStyle(TableStyle([
-                            # ★ 罫線（GRID）は一切なし（透明）に設定
                             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
                             ('TOPPADDING', (0,0), (-1,-1), 2),
                             ('BOTTOMPADDING', (0,0), (-1,-1), 2),
