@@ -320,13 +320,11 @@ with tab2:
     
     target_date_str = target_delivery_date.strftime("%Y-%m-%d")
     
-    # セッション内にタブ2専用のデータ保持枠を作る
     if "api_records_t2" not in st.session_state:
         st.session_state["api_records_t2"] = []
     
     if fetch_by_query_btn:
         with st.spinner(f"予定日【 {target_date_str} 】のデータを@pocketから検索中..."):
-            # field-90_8 をキーにした日付クエリを発行（API負荷軽減＆2000件制限回避）
             q_str = f'field-90_8 like "{target_date_str}"'
             st.session_state["api_records_t2"] = fetch_pocket_records(custom_query=q_str)
         st.rerun()
@@ -335,7 +333,6 @@ with tab2:
     df_t2_flat = pd.DataFrame(build_flat_data(t2_records))
     
     if not df_t2_flat.empty:
-        # 自動転記チェック
         if auto_copy_delivery:
             for idx, row in df_t2_flat.iterrows():
                 if pd.isna(row["納品日"]) or str(row["納品日"]) in ["NaT", "", "None"]:
@@ -360,7 +357,6 @@ with tab2:
             
             styles = getSampleStyleSheet()
             
-            # 日本語フォント登録の試行
             font_registered = False
             for font_path in ["NotoSansJP-Regular.ttf", "fonts/NotoSansJP-Regular.ttf", "/usr/share/fonts/opentype/noto/NotoSansJP-Regular.ttf"]:
                 if os.path.exists(font_path):
@@ -437,8 +433,3 @@ with tab2:
             )
     else:
         st.info(f"ℹ️ 上の「指定日のデータを@pocketから直接取得」ボタンを押すと、予定日【 {target_date_str} 】（field-90_8）のデータがサーバーから読み込まれます。")
-
-<ElicitationsGroup message="このクエリ直撃型・予定日検索の仕組みについて：">
-  <Elicitation label="指定日データ取得ボタンを押して動作を確認する" query="タブ2の「指定日のデータを@pocketから直接取得」ボタンでfield-90_8のクエリが正しく機能するか試してみます。"/>
-  <Elicitation label="専用伝票の発行・自動採番機能もこのクエリ方式に組み込む" query="この調子で、専用伝票の出力・自動採番機能もタブ2に統合していきたいです。"/>
-</ElicitationsGroup>
