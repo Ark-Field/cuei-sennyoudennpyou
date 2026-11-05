@@ -35,15 +35,15 @@ else:
     APP_ID = 34
 
 # ==========================================
-# 3. APIデータ取得関数
+# 3. APIデータ取得関数（汎用・クエリ指定対応）
 # ==========================================
-def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, target_publisher=None):
+def fetch_pocket_records(custom_query=None, start_date=None, end_date=None, target_publisher=None):
     url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records"
     headers = {"X-At-Pocket-API-Key": POCKET_API_KEY, "Accept": "application/json"}
     params = {}
     
-    if target_order_no:
-        params["query"] = f'field-2 = "{target_order_no}"'
+    if custom_query:
+        params["query"] = custom_query
     else:
         query_parts = []
         if start_date and end_date:
@@ -57,9 +57,6 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, t
     
     try:
         response = requests.get(url, headers=headers, params=params, timeout=20)
-        if response.status_code != 200 and "query" in params:
-            response = requests.get(url, headers=headers, timeout=20)
-        
         if response.status_code == 200:
             result = response.json()
             raw_items = result.get("records", result.get("Data", result.get("Records", [])))
@@ -100,7 +97,7 @@ tab1, tab2 = st.tabs([
     "📋 タブ2: 納品予定表（顧客×便別出力）"
 ])
 
-# 初期データロード
+# 初期データロード（タブ1用）
 if "api_records" not in st.session_state:
     default_end = date.today()
     default_start = default_end - timedelta(days=21)
@@ -109,70 +106,72 @@ if "api_records" not in st.session_state:
 api_records = st.session_state.get("api_records", [])
 
 # ==========================================
-# フラットデータ（明細行展開）の構築
+# 共通ヘルパー: レコード群をフラットデータ（明細行展開）に変換
 # ==========================================
-flat_data = []
-for record_idx, r in enumerate(api_records):
-    h_ord_no = str(r.get("field-2", ""))
-    h_ord_date = parse_date_safe(r.get("field-1"))
-    h_pub = str(r.get("field-8", ""))
-    h_title = str(r.get("field-13", ""))
-    h_isbn = str(r.get("field-93", ""))
-    h_qty = str(r.get("field-4", ""))
-    h_price = str(r.get("field-20", "")) # 定価
-    h_print_qty = str(r.get("field-3", "")) # 印字数
-    h_deposit = str(r.get("field-81", "")) # 預かり数
-    
-    sub_90 = r.get("field-90", [])
-    sub_88 = r.get("field-88", [])
-    sub_89 = r.get("field-89", [])
-    
-    max_len = max(len(sub_90) if isinstance(sub_90, list) else 0,
-                  len(sub_88) if isinstance(sub_88, list) else 0,
-                  len(sub_89) if isinstance(sub_89, list) else 0, 1)
-    
-    for i in range(max_len):
-        item_90 = sub_90[i] if isinstance(sub_90, list) and len(sub_90) > i else {}
-        sub_id_90 = item_90.get("recordSubId", item_90.get("Id", ""))
-        rec_90 = item_90.get("record", item_90) if isinstance(item_90, dict) else {}
+def build_flat_data(records):
+    flat = []
+    for record_idx, r in enumerate(records):
+        h_ord_no = str(r.get("field-2", ""))
+        h_ord_date = parse_date_safe(r.get("field-1"))
+        h_pub = str(r.get("field-8", ""))
+        h_title = str(r.get("field-13", ""))
+        h_isbn = str(r.get("field-93", ""))
+        h_qty = str(r.get("field-4", ""))
+        h_price = str(r.get("field-20", ""))
+        h_print_qty = str(r.get("field-3", ""))
+        h_deposit = str(r.get("field-81", ""))
         
-        item_88 = sub_88[i] if isinstance(sub_88, list) and len(sub_88) > i else {}
-        sub_id_88 = item_88.get("recordSubId", item_88.get("Id", ""))
-        rec_88 = item_88.get("record", item_88) if isinstance(item_88, dict) else {}
+        sub_90 = r.get("field-90", [])
+        sub_88 = r.get("field-88", [])
+        sub_89 = r.get("field-89", [])
         
-        item_89 = sub_89[i] if isinstance(sub_89, list) and len(sub_89) > i else {}
-        sub_id_89 = item_89.get("recordSubId", item_89.get("Id", ""))
-        rec_89 = item_89.get("record", item_89) if isinstance(item_89, dict) else {}
+        max_len = max(len(sub_90) if isinstance(sub_90, list) else 0,
+                      len(sub_88) if isinstance(sub_88, list) else 0,
+                      len(sub_89) if isinstance(sub_89, list) else 0, 1)
         
-        flat_data.append({
-            "更新": False,
-            "_record_idx": record_idx,
-            "_sub_idx": i,
-            "_id_90": sub_id_90,
-            "_id_88": sub_id_88,
-            "_id_89": sub_id_89,
-            "受注番号": h_ord_no,
-            "受注日": h_ord_date,
-            "出版社名": h_pub,
-            "書名": h_title,
-            "ISBN": h_isbn,
-            "製本数": h_qty,
-            "定価": h_price,
-            "印字数": h_print_qty,
-            "預かり数": h_deposit,
-            "配本日": parse_date_safe(rec_90.get("field-90_1")),
-            "予定日": parse_date_safe(rec_90.get("field-90_8")),  # ★検索・予定日の軸（field-90_8）
-            "納品日": parse_date_safe(rec_88.get("field-88_2")),  # ★確定納品日（field-88_2）
-            "納品数": str(rec_88.get("field-88_4", "")),
-            "摘要": str(rec_88.get("field-88_5", "")),
-            "在庫納品": bool(rec_88.get("field-88_6", False)),
-            "PL数": str(rec_88.get("field-88_7", "")),
-            "見本数": str(rec_88.get("field-88_8", "")),
-            "専用伝票番号": str(rec_88.get("field-88_9", "")),
-            "配車区分": str(rec_88.get("field-88_10", "") if rec_88.get("field-88_10") else "便なし"),
-        })
+        for i in range(max_len):
+            item_90 = sub_90[i] if isinstance(sub_90, list) and len(sub_90) > i else {}
+            sub_id_90 = item_90.get("recordSubId", item_90.get("Id", ""))
+            rec_90 = item_90.get("record", item_90) if isinstance(item_90, dict) else {}
+            
+            item_88 = sub_88[i] if isinstance(sub_88, list) and len(sub_88) > i else {}
+            sub_id_88 = item_88.get("recordSubId", item_88.get("Id", ""))
+            rec_88 = item_88.get("record", item_88) if isinstance(item_88, dict) else {}
+            
+            item_89 = sub_89[i] if isinstance(sub_89, list) and len(sub_89) > i else {}
+            sub_id_89 = item_89.get("recordSubId", item_89.get("Id", ""))
+            rec_89 = item_89.get("record", item_89) if isinstance(item_89, dict) else {}
+            
+            flat.append({
+                "更新": False,
+                "_record_idx": record_idx,
+                "_sub_idx": i,
+                "_id_90": sub_id_90,
+                "_id_88": sub_id_88,
+                "_id_89": sub_id_89,
+                "受注番号": h_ord_no,
+                "受注日": h_ord_date,
+                "出版社名": h_pub,
+                "書名": h_title,
+                "ISBN": h_isbn,
+                "製本数": h_qty,
+                "定価": h_price,
+                "印字数": h_print_qty,
+                "預かり数": h_deposit,
+                "配本日": parse_date_safe(rec_90.get("field-90_1")),
+                "予定日": parse_date_safe(rec_90.get("field-90_8")),  # 検索・予定日(90_8)
+                "納品日": parse_date_safe(rec_88.get("field-88_2")),  # 確定納品日(88_2)
+                "納品数": str(rec_88.get("field-88_4", "")),
+                "摘要": str(rec_88.get("field-88_5", "")),
+                "在庫納品": bool(rec_88.get("field-88_6", False)),
+                "PL数": str(rec_88.get("field-88_7", "")),
+                "見本数": str(rec_88.get("field-88_8", "")),
+                "専用伝票番号": str(rec_88.get("field-88_9", "")),
+                "配車区分": str(rec_88.get("field-88_10", "") if rec_88.get("field-88_10") else "便なし"),
+            })
+    return flat
 
-df_flat = pd.DataFrame(flat_data)
+df_flat = pd.DataFrame(build_flat_data(api_records))
 
 # ==========================================
 # タブ1：受注・納品データ一覧 ＆ 更新
@@ -304,41 +303,48 @@ with tab1:
         st.info("ℹ️ 表示するデータがありません。")
 
 # ==========================================
-# タブ2：納品予定表（顧客×便別出力）
+# タブ2：納品予定表（予定日 field-90_8 クエリ直撃対応）
 # ==========================================
 with tab2:
-    st.header("📋 納品予定表（顧客別 × 便別）")
+    st.header("📋 納品予定表（予定日クエリ直撃・顧客×便別出力）")
     
-    col_t2_1, col_t2_2 = st.columns(2)
+    col_t2_1, col_t2_2, col_t2_3 = st.columns(3)
     with col_t2_1:
-        target_delivery_date = st.date_input("対象予定日を指定 (field-90_8基準)", value=date.today(), key="target_deliv_date")
+        target_delivery_date = st.date_input("対象予定日を指定 (field-90_8)", value=date.today(), key="target_deliv_date")
     with col_t2_2:
-        auto_copy_delivery = st.checkbox("💡 予定日を確定納品日(88_2)へ自動転記して一括保存する", value=False)
+        auto_copy_delivery = st.checkbox("💡 予定日を確定納品日(88_2)へ自動転記する", value=False)
+    with col_t2_3:
+        st.write("")
+        st.write("")
+        fetch_by_query_btn = st.button("🔍 指定日のデータを@pocketから直接取得", type="primary")
     
     target_date_str = target_delivery_date.strftime("%Y-%m-%d")
     
-    # ★ field-90_8（予定日）を基準にして抽出
-    day_delivery_rows = []
-    for row in flat_data:
-        d_val = row.get("予定日")
-        if d_val:
-            if isinstance(d_val, (date, datetime)):
-                d_str = d_val.strftime("%Y-%m-%d")
-            else:
-                d_str = str(d_val).replace("/", "-").strip()[:10]
-            
-            if d_str == target_date_str:
-                # 自動転記チェックが有効な場合、確定納品日(納品日)に予定日をコピー
-                if auto_copy_delivery and (not row.get("納品日") or str(row.get("納品日")) == "NaT"):
-                    row["納品日"] = target_delivery_date
-                day_delivery_rows.append(row)
-            
-    if day_delivery_rows:
-        df_day = pd.DataFrame(day_delivery_rows)
-        st.success(f"✨ 予定日【 {target_date_str} 】の明細データが **{len(df_day)} 件** あります。")
+    # セッション内にタブ2専用のデータ保持枠を作る
+    if "api_records_t2" not in st.session_state:
+        st.session_state["api_records_t2"] = []
+    
+    if fetch_by_query_btn:
+        with st.spinner(f"予定日【 {target_date_str} 】のデータを@pocketから検索中..."):
+            # field-90_8 をキーにした日付クエリを発行（API負荷軽減＆2000件制限回避）
+            q_str = f'field-90_8 like "{target_date_str}"'
+            st.session_state["api_records_t2"] = fetch_pocket_records(custom_query=q_str)
+        st.rerun()
+        
+    t2_records = st.session_state.get("api_records_t2", [])
+    df_t2_flat = pd.DataFrame(build_flat_data(t2_records))
+    
+    if not df_t2_flat.empty:
+        # 自動転記チェック
+        if auto_copy_delivery:
+            for idx, row in df_t2_flat.iterrows():
+                if pd.isna(row["納品日"]) or str(row["納品日"]) in ["NaT", "", "None"]:
+                    df_t2_flat.at[idx, "納品日"] = target_delivery_date
+        
+        st.success(f"✨ 予定日【 {target_date_str} 】の明細データが **{len(df_t2_flat)} 件** ヒットしました！")
         
         st.subheader("📊 顧客別・便別 納品予定一覧")
-        df_sorted = df_day.sort_values(by=["出版社名", "配車区分"])
+        df_sorted = df_t2_flat.sort_values(by=["出版社名", "配車区分"])
         st.dataframe(
             df_sorted[["出版社名", "配車区分", "受注番号", "書名", "納品数", "PL数", "見本数", "摘要", "納品日"]],
             use_container_width=True
@@ -382,7 +388,7 @@ with tab2:
             story.append(Paragraph(f"<b>納品予定表 （予定日: {target_date_str}）</b>", title_style))
             story.append(Spacer(1, 8*mm))
             
-            grouped = df_day.groupby(["出版社名", "配車区分"])
+            grouped = df_t2_flat.groupby(["出版社名", "配車区分"])
             
             for (pub, vehicle), group in grouped:
                 story.append(Paragraph(f"<b>■ 宛先（顧客）: {pub}  ／  配車便: {vehicle}</b>", heading_style))
@@ -430,4 +436,9 @@ with tab2:
                 type="primary"
             )
     else:
-        st.info(f"ℹ️ 予定日【 {target_date_str} 】（field-90_8）に該当するデータはありません。")
+        st.info(f"ℹ️ 上の「指定日のデータを@pocketから直接取得」ボタンを押すと、予定日【 {target_date_str} 】（field-90_8）のデータがサーバーから読み込まれます。")
+
+<ElicitationsGroup message="このクエリ直撃型・予定日検索の仕組みについて：">
+  <Elicitation label="指定日データ取得ボタンを押して動作を確認する" query="タブ2の「指定日のデータを@pocketから直接取得」ボタンでfield-90_8のクエリが正しく機能するか試してみます。"/>
+  <Elicitation label="専用伝票の発行・自動採番機能もこのクエリ方式に組み込む" query="この調子で、専用伝票の出力・自動採番機能もタブ2に統合していきたいです。"/>
+</ElicitationsGroup>
