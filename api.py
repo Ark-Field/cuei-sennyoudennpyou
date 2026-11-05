@@ -74,7 +74,6 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, t
                     rec_body = {}
                 
                 merged_body = {**item, **rec_body}
-                # レコードIDの正確な取得
                 merged_body["_recordId"] = item.get("Id", item.get("recordId", item.get("ResultId", rec_body.get("Id", ""))))
                 parsed_records.append(merged_body)
             
@@ -149,6 +148,10 @@ def build_flat_data(records):
             sub_id_89 = item_89.get("recordSubId", item_89.get("Id", ""))
             rec_89 = item_89.get("record", item_89) if isinstance(item_89, dict) else {}
             
+            haisha_val = str(rec_88.get("field-88_10", ""))
+            if not haisha_val or haisha_val.lower() in ["nan", "none", ""]:
+                haisha_val = ""
+
             flat.append({
                 "更新": False,
                 "_record_idx": record_idx,
@@ -173,7 +176,7 @@ def build_flat_data(records):
                 "PL数": str(rec_88.get("field-88_7", "")),
                 "見本数": str(rec_88.get("field-88_8", "")),
                 "専用伝票番号": str(rec_88.get("field-88_9", "")),
-                "配車区分": str(rec_88.get("field-88_10", "") if rec_88.get("field-88_10") else "便なし"),
+                "配車区分": haisha_val,
             })
     return flat
 
@@ -231,7 +234,7 @@ with tab1:
                 "PL数": st.column_config.TextColumn("PL数"),
                 "見本数": st.column_config.TextColumn("見本数"),
                 "専用伝票番号": st.column_config.TextColumn("伝票番号"),
-                "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "便なし", "A車", "B車", "C車", "チャーター"]),
+                "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
             }
         )
         
@@ -253,7 +256,6 @@ with tab1:
                     original_rec = api_records[r_idx]
                     record_id = original_rec.get("_recordId")
                     if not record_id:
-                        st.error(f"❌ レコードIDが見つかりません (index: {r_idx})")
                         continue
                     
                     update_url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records/{record_id}"
@@ -282,7 +284,13 @@ with tab1:
                         rec_dict["field-88_7"] = str(row["PL数"])
                         rec_dict["field-88_8"] = str(row["見本数"])
                         rec_dict["field-88_9"] = str(row["専用伝票番号"])
-                        rec_dict["field-88_10"] = str(row["配車区分"])
+                        
+                        # 配車区分の安全なクレンジング（nanを完全に排除）
+                        h_val = row["配車区分"]
+                        if pd.isna(h_val) or str(h_val).lower() in ["nan", "none", ""]:
+                            rec_dict["field-88_10"] = ""
+                        else:
+                            rec_dict["field-88_10"] = str(h_val)
                         
                         item_88["record"] = rec_dict
                         sub88_list.append(item_88)
@@ -295,8 +303,7 @@ with tab1:
                         if res.status_code in [200, 204]:
                             success_count += 1
                         else:
-                            # ★ 失敗した原因を画面に赤字で詳しく表示するデバッグ
-                            st.error(f"❌ 書き戻しエラー (ID: {record_id}, ステータス: {res.status_code}): {res.text}")
+                            st.error(f"❌ 書き戻しエラー (ID: {record_id}): {res.text}")
                     except Exception as ex:
                         st.error(f"🚨 例外発生: {ex}")
                 
@@ -356,7 +363,7 @@ with tab2:
                 "納品数": st.column_config.TextColumn("納品数"),
                 "PL数": st.column_config.TextColumn("PL数"),
                 "見本数": st.column_config.TextColumn("見本数"),
-                "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "便なし", "A車", "B車", "C車", "チャーター"]),
+                "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
                 "摘要": st.column_config.TextColumn("摘要"),
                 "在庫納品": st.column_config.CheckboxColumn("在庫納品"),
                 "専用伝票番号": st.column_config.TextColumn("伝票番号"),
@@ -381,7 +388,6 @@ with tab2:
                     original_rec = api_records[r_idx]
                     record_id = original_rec.get("_recordId")
                     if not record_id:
-                        st.error(f"❌ レコードIDが見つかりません (index: {r_idx})")
                         continue
                     
                     update_url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records/{record_id}"
@@ -410,7 +416,13 @@ with tab2:
                         rec_dict["field-88_7"] = str(row["PL数"])
                         rec_dict["field-88_8"] = str(row["見本数"])
                         rec_dict["field-88_9"] = str(row["専用伝票番号"])
-                        rec_dict["field-88_10"] = str(row["配車区分"])
+                        
+                        # 配車区分の安全なクレンジング（nanを完全に排除）
+                        h_val = row["配車区分"]
+                        if pd.isna(h_val) or str(h_val).lower() in ["nan", "none", ""]:
+                            rec_dict["field-88_10"] = ""
+                        else:
+                            rec_dict["field-88_10"] = str(h_val)
                         
                         item_88["record"] = rec_dict
                         sub88_list.append(item_88)
@@ -423,8 +435,7 @@ with tab2:
                         if res.status_code in [200, 204]:
                             success_count += 1
                         else:
-                            # ★ 失敗した原因を画面に赤字で詳しく表示するデバッグ
-                            st.error(f"❌ タブ2書き戻しエラー (ID: {record_id}, ステータス: {res.status_code}): {res.text}")
+                            st.error(f"❌ タブ2書き戻しエラー (ID: {record_id}): {res.text}")
                     except Exception as ex:
                         st.error(f"🚨 例外発生: {ex}")
                 
