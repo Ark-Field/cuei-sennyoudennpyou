@@ -219,7 +219,7 @@ with tab1:
                 "ISBN": st.column_config.TextColumn("ISBN", disabled=True),
                 "製本数": st.column_config.TextColumn("製本数", disabled=True),
                 "定価": st.column_config.TextColumn("定価", disabled=True),
-                "印字数": st.column_config.TextColumn("印字数", disabled=Y:=True),
+                "印字数": st.column_config.TextColumn("印字数", disabled=True),
                 "預かり数": st.column_config.TextColumn("預かり数", disabled=True),
                 "配本日": st.column_config.DateColumn("配本日", format="YYYY-MM-DD"),
                 "予定日": st.column_config.DateColumn("予定日(90_8)", format="YYYY-MM-DD", disabled=True),
@@ -438,3 +438,9 @@ with tab2:
             )
     else:
         st.info(f"ℹ️ 上の「指定日のデータを@pocketから直接取得」ボタンを押すと、予定日【 {target_date_str} 】（field-90_8）のデータがサーバーから読み込まれます。")
+
+---
+
+<ElicitationsGroup message="修正版コードの動作確認について：">
+  <Elicitation label="修正されたコードでアプリを再起動して動作を確認する" query="構文エラーを修正したコードでStreamlitアプリを再起動し、指定日のデータ検索と専用伝票・予定表の出力を確認します。"/>
+</ElicitationsGroup>
