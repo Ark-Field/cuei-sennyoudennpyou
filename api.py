@@ -35,16 +35,14 @@ else:
     APP_ID = 34
 
 # ==========================================
-# 3. APIデータ取得関数（クエリ直撃対応・安全設計）
+# 3. APIデータ取得関数（安全設計）
 # ==========================================
-def fetch_pocket_records(custom_query=None, start_date=None, end_date=None, target_order_no=None, target_publisher=None):
+def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, target_publisher=None):
     url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records"
     headers = {"X-At-Pocket-API-Key": POCKET_API_KEY, "Accept": "application/json"}
     params = {}
     
-    if custom_query:
-        params["query"] = custom_query
-    elif target_order_no:
+    if target_order_no:
         params["query"] = f'field-2 = "{target_order_no}"'
     else:
         query_parts = []
@@ -320,7 +318,7 @@ with tab2:
     with col_t2_3:
         st.write("")
         st.write("")
-        fetch_by_query_btn = st.button("🔍 指定日のデータを@pocketから直接取得", type="primary")
+        fetch_by_query_btn = st.button("🔍 指定日周辺のデータを取得", type="primary")
     
     target_date_str = target_delivery_date.strftime("%Y-%m-%d")
     
@@ -328,13 +326,21 @@ with tab2:
         st.session_state["api_records_t2"] = []
         
     if fetch_by_query_btn:
-        with st.spinner(f"予定日【 {target_date_str} 】のデータを@pocketから検索中..."):
-            q_str = f'field-90_8 like "{target_date_str}"'
-            st.session_state["api_records_t2"] = fetch_pocket_records(custom_query=q_str)
+        with st.spinner(f"予定日【 {target_date_str} 】周辺のデータを取得中..."):
+            # サブテーブルの予定日はサーバー側クエリが効かないため、前後30日間の範囲で安全に取得
+            start_scope = target_delivery_date - timedelta(days=30)
+            end_scope = target_delivery_date + timedelta(days=30)
+            st.session_state["api_records_t2"] = fetch_pocket_records(start_date=start_scope, end_date=end_scope)
         st.rerun()
         
     t2_records = st.session_state.get("api_records_t2", [])
-    df_t2_flat = pd.DataFrame(build_flat_data(t2_records))
+    df_t2_all = pd.DataFrame(build_flat_data(t2_records))
+    
+    # Python側で「予定日(field-90_8)」が一致するものだけを厳密にピンポイント抽出
+    if not df_t2_all.empty:
+        df_t2_flat = df_t2_all[df_t2_all["予定日"].astype(str) == target_date_str].copy()
+    else:
+        df_t2_flat = pd.DataFrame()
     
     if not df_t2_flat.empty:
         if auto_copy_delivery:
@@ -437,4 +443,9 @@ with tab2:
                 type="primary"
             )
     else:
-        st.info(f"ℹ️ 上の「指定日のデータを@pocketから直接取得」ボタンを押すと、予定日【 {target_date_str} 】（field-90_8）のデータがサーバーから読み込まれます。")
+        st.info(f"ℹ️ 上の「指定日周辺のデータを取得」ボタンを押すと、予定日【 {target_date_str} 】周辺のデータが読み込まれます。")
+
+<ElicitationsGroup message="データ確認や追加の調整について：">
+  <Elicitation label="アプリを起動して指定日でのデータヒット件数を確認する" query="修正版コードを適用してアプリを再起動し、指定日のデータが正しい件数でヒットするか確認します。"/>
+  <Elicitation label="納品予定表のPDF出力機能もこのタブにボタンとして追加する" query="専用伝票だけでなく、顧客別×便別の納品予定表PDFも同じタブからダウンロードできるようにしたいです。"/>
+</ElicitationsGroup>
