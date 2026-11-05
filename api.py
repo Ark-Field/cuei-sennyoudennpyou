@@ -327,7 +327,6 @@ with tab2:
         
     if fetch_by_query_btn:
         with st.spinner(f"予定日【 {target_date_str} 】周辺のデータを取得中..."):
-            # サブテーブルの予定日はサーバー側クエリが効かないため、前後30日間の範囲で安全に取得
             start_scope = target_delivery_date - timedelta(days=30)
             end_scope = target_delivery_date + timedelta(days=30)
             st.session_state["api_records_t2"] = fetch_pocket_records(start_date=start_scope, end_date=end_scope)
@@ -336,7 +335,6 @@ with tab2:
     t2_records = st.session_state.get("api_records_t2", [])
     df_t2_all = pd.DataFrame(build_flat_data(t2_records))
     
-    # Python側で「予定日(field-90_8)」が一致するものだけを厳密にピンポイント抽出
     if not df_t2_all.empty:
         df_t2_flat = df_t2_all[df_t2_all["予定日"].astype(str) == target_date_str].copy()
     else:
@@ -353,99 +351,172 @@ with tab2:
         st.dataframe(df_t2_flat[["出版社名", "配車区分", "受注番号", "書名", "納品数", "専用伝票番号", "PL数", "見本数", "納品日"]], use_container_width=True)
         
         st.divider()
-        st.subheader("🖨️ 専用伝票番号の自動採番（番号死守ガード付き） ＆ PDF出力")
+        st.subheader("🖨️ 各種出力（納品予定表 ＆ 専用伝票）")
         
-        if st.button("🚀 【番号死守】自動採番を実行して専用伝票PDFを生成する", type="primary", key="btn_generate_slips"):
-            grouped = df_t2_flat.groupby(["出版社名", "配車区分"])
-            
-            updated_count = 0
-            for (pub, vehicle), group in grouped:
-                max_slip_no = 0
-                for r in df_t2_flat.to_dict(orient="records"):
-                    if r["出版社名"] == pub and r["配車区分"] == vehicle:
-                        s_no = str(r["専用伝票番号"])
-                        if s_no.isdigit():
-                            max_slip_no = max(max_slip_no, int(s_no))
+        col_out1, col_out2 = st.columns(2)
+        
+        # --- ① 納品予定表PDFの生成 ---
+        with col_out1:
+            if st.button("🚀 顧客別・便別 納品予定表PDFを生成", type="secondary", key="btn_generate_schedule_pdf"):
+                buffer_sch = io.BytesIO()
+                doc_sch = SimpleDocTemplate(buffer_sch, pagesize=A4, rightMargin=15*mm, leftMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
+                story_sch = []
                 
-                current_no = max(1, max_slip_no + 1)
+                styles = getSampleStyleSheet()
                 
-                for idx, row in group.iterrows():
-                    if not str(row["専用伝票番号"]).isdigit():
-                        df_t2_flat.at[idx, "専用伝票番号"] = str(current_no)
-                        updated_count += 1
-            
-            st.success(f"🔒 番号死守ガード適用完了（新規採番・割り当て件数: {updated_count}件）")
-            
-            buffer = io.BytesIO()
-            doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=15*mm, leftMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
-            story = []
-            
-            styles = getSampleStyleSheet()
-            normal_style = styles['Normal']
-            
-            for (pub, vehicle), group in df_t2_flat.groupby(["出版社名", "配車区分"]):
-                items = group.to_dict(orient="records")
-                slip_no = items[0]["専用伝票番号"] if items else "1"
+                font_registered = False
+                for font_path in ["NotoSansJP-Regular.ttf", "fonts/NotoSansJP-Regular.ttf", "/usr/share/fonts/opentype/noto/NotoSansJP-Regular.ttf"]:
+                    if os.path.exists(font_path):
+                        try:
+                            pdfmetrics.registerFont(TTFont("NotoSansJP", font_path))
+                            font_registered = True
+                            break
+                        except Exception:
+                            pass
                 
-                CHUNK_SIZE = 6
-                for i in range(0, len(items), CHUNK_SIZE):
-                    chunk = items[i:i + CHUNK_SIZE]
+                jp_font_name = "NotoSansJP" if font_registered else "Helvetica"
+                
+                title_style = ParagraphStyle('JpTitle', parent=styles['Heading1'], fontName=jp_font_name, fontSize=16, leading=22, alignment=1)
+                heading_style = ParagraphStyle('JpHeading', parent=styles['Heading2'], fontName=jp_font_name, fontSize=11, leading=16)
+                cell_style = ParagraphStyle('JpCell', parent=styles['Normal'], fontName=jp_font_name, fontSize=9, leading=12)
+
+                story_sch.append(Paragraph(f"<b>納品予定表 （予定日: {target_date_str}）</b>", title_style))
+                story_sch.append(Spacer(1, 8*mm))
+                
+                for (pub, vehicle), group in df_t2_flat.groupby(["出版社名", "配車区分"]):
+                    story_sch.append(Paragraph(f"<b>■ 宛先（顧客）: {pub}  ／  配車便: {vehicle}</b>", heading_style))
+                    story_sch.append(Spacer(1, 2*mm))
                     
-                    header_text = f"<b>【専用伝票】 宛先: {pub} 御中  配車便: {vehicle}  伝票番号: 第 {slip_no} 号  予定日: {target_date_str}</b>"
-                    story.append(Paragraph(header_text, normal_style))
-                    story.append(Spacer(1, 5*mm))
+                    table_data = [[
+                        Paragraph("<b>受注番号</b>", cell_style),
+                        Paragraph("<b>書名</b>", cell_style),
+                        Paragraph("<b>納品数</b>", cell_style),
+                        Paragraph("<b>PL数</b>", cell_style),
+                        Paragraph("<b>見本数</b>", cell_style),
+                        Paragraph("<b>摘要</b>", cell_style)
+                    ]]
                     
-                    page_rows = [
-                        ["受注番号", "書名 / ISBN", "定価", "刷数", "納品数", "PL数", "見本数"],
-                        ["備考 / 摘要", "預かり数 / 印字数", "在庫納品", "", "", "", ""]
-                    ]
+                    for _, row in group.iterrows():
+                        table_data.append([
+                            Paragraph(str(row.get("受注番号", "")), cell_style),
+                            Paragraph(str(row.get("書名", "")), cell_style),
+                            Paragraph(str(row.get("納品数", "")), cell_style),
+                            Paragraph(str(row.get("PL数", "")), cell_style),
+                            Paragraph(str(row.get("見本数", "")), cell_style),
+                            Paragraph(str(row.get("摘要", "")), cell_style),
+                        ])
                     
-                    for item in chunk:
-                        row1 = [
-                            str(item.get("受注番号", "")),
-                            f"{item.get('書名', '')}\n(ISBN: {item.get('ISBN', '')})",
-                            str(item.get("定価", "")),
-                            str(item.get("製本数", "")),
-                            str(item.get("納品数", "")),
-                            str(item.get("PL数", "")),
-                            str(item.get("見本数", ""))
-                        ]
-                        row2 = [
-                            str(item.get("摘要", "")),
-                            f"預:{item.get('預かり数', '')} / 印:{item.get('印字数', '')}",
-                            "✓" if item.get("在庫納品") else "",
-                            "", "", "", ""
-                        ]
-                        page_rows.append(row1)
-                        page_rows.append(row2)
-                        
-                    while len(page_rows) < 14:
-                        page_rows.append(["", "", "", "", "", "", ""])
-                        
-                    slip_table = Table(page_rows, colWidths=[25*mm, 65*mm, 15*mm, 15*mm, 15*mm, 15*mm, 15*mm])
-                    slip_table.setStyle(TableStyle([
-                        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+                    schedule_table = Table(table_data, colWidths=[25*mm, 75*mm, 20*mm, 15*mm, 15*mm, 30*mm])
+                    schedule_table.setStyle(TableStyle([
+                        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
                         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                        ('FONTSIZE', (0,0), (-1,-1), 9),
+                        ('TOPPADDING', (0,0), (-1,-1), 4),
+                        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
                     ]))
                     
-                    story.append(slip_table)
-                    story.append(PageBreak())
-            
-            doc.build(story)
-            buffer.seek(0)
-            
-            st.download_button(
-                label="📥 専用伝票PDFをダウンロードする",
-                data=buffer,
-                file_name=f"納品専用伝票_{target_date_str}.pdf",
-                mime="application/pdf",
-                type="primary"
-            )
+                    story_sch.append(schedule_table)
+                    story_sch.append(Spacer(1, 6*mm))
+                
+                doc_sch.build(story_sch)
+                buffer_sch.seek(0)
+                
+                st.download_button(
+                    label="📥 納品予定表PDFをダウンロード",
+                    data=buffer_sch,
+                    file_name=f"納品予定表_{target_date_str}.pdf",
+                    mime="application/pdf",
+                    key="dl_sch_pdf"
+                )
+
+        # --- ② 専用伝票PDFの生成（番号死守ガード付き） ---
+        with col_out2:
+            if st.button("🚀 【番号死守】専用伝票PDFを生成", type="primary", key="btn_generate_slips"):
+                grouped = df_t2_flat.groupby(["出版社名", "配車区分"])
+                
+                updated_count = 0
+                for (pub, vehicle), group in grouped:
+                    max_slip_no = 0
+                    for r in df_t2_flat.to_dict(orient="records"):
+                        if r["出版社名"] == pub and r["配車区分"] == vehicle:
+                            s_no = str(r["専用伝票番号"])
+                            if s_no.isdigit():
+                                max_slip_no = max(max_slip_no, int(s_no))
+                    
+                    current_no = max(1, max_slip_no + 1)
+                    
+                    for idx, row in group.iterrows():
+                        if not str(row["専用伝票番号"]).isdigit():
+                            df_t2_flat.at[idx, "専用伝票番号"] = str(current_no)
+                            updated_count += 1
+                
+                st.success(f"🔒 番号死守ガード適用（新規採番: {updated_count}件）")
+                
+                buffer_slip = io.BytesIO()
+                doc_slip = SimpleDocTemplate(buffer_slip, pagesize=A4, rightMargin=15*mm, leftMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
+                story_slip = []
+                
+                styles = getSampleStyleSheet()
+                normal_style = styles['Normal']
+                
+                for (pub, vehicle), group in df_t2_flat.groupby(["出版社名", "配車区分"]):
+                    items = group.to_dict(orient="records")
+                    slip_no = items[0]["専用伝票番号"] if items else "1"
+                    
+                    CHUNK_SIZE = 6
+                    for i in range(0, len(items), CHUNK_SIZE):
+                        chunk = items[i:i + CHUNK_SIZE]
+                        
+                        header_text = f"<b>【専用伝票】 宛先: {pub} 御中  配車便: {vehicle}  伝票番号: 第 {slip_no} 号  予定日: {target_date_str}</b>"
+                        story_slip.append(Paragraph(header_text, normal_style))
+                        story_slip.append(Spacer(1, 5*mm))
+                        
+                        page_rows = [
+                            ["受注番号", "書名 / ISBN", "定価", "刷数", "納品数", "PL数", "見本数"],
+                            ["備考 / 摘要", "預かり数 / 印字数", "在庫納品", "", "", "", ""]
+                        ]
+                        
+                        for item in chunk:
+                            row1 = [
+                                str(item.get("受注番号", "")),
+                                f"{item.get('書名', '')}\n(ISBN: {item.get('ISBN', '')})",
+                                str(item.get("定価", "")),
+                                str(item.get("製本数", "")),
+                                str(item.get("納品数", "")),
+                                str(item.get("PL数", "")),
+                                str(item.get("見本数", ""))
+                            ]
+                            row2 = [
+                                str(item.get("摘要", "")),
+                                f"預:{item.get('預かり数', '')} / 印:{item.get('印字数', '')}",
+                                "✓" if item.get("在庫納品") else "",
+                                "", "", "", ""
+                            ]
+                            page_rows.append(row1)
+                            page_rows.append(row2)
+                            
+                        while len(page_rows) < 14:
+                            page_rows.append(["", "", "", "", "", "", ""])
+                            
+                        slip_table = Table(page_rows, colWidths=[25*mm, 65*mm, 15*mm, 15*mm, 15*mm, 15*mm, 15*mm])
+                        slip_table.setStyle(TableStyle([
+                            ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+                            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                            ('FONTSIZE', (0,0), (-1,-1), 9),
+                        ]))
+                        
+                        story_slip.append(slip_table)
+                        story_slip.append(PageBreak())
+                
+                doc_slip.build(story_slip)
+                buffer_slip.seek(0)
+                
+                st.download_button(
+                    label="📥 専用伝票PDFをダウンロード",
+                    data=buffer_slip,
+                    file_name=f"納品専用伝票_{target_date_str}.pdf",
+                    mime="application/pdf",
+                    key="dl_slip_pdf"
+                )
     else:
         st.info(f"ℹ️ 上の「指定日周辺のデータを取得」ボタンを押すと、予定日【 {target_date_str} 】周辺のデータが読み込まれます。")
-
-<ElicitationsGroup message="データ確認や追加の調整について：">
-  <Elicitation label="アプリを起動して指定日でのデータヒット件数を確認する" query="修正版コードを適用してアプリを再起動し、指定日のデータが正しい件数でヒットするか確認します。"/>
-  <Elicitation label="納品予定表のPDF出力機能もこのタブにボタンとして追加する" query="専用伝票だけでなく、顧客別×便別の納品予定表PDFも同じタブからダウンロードできるようにしたいです。"/>
-</ElicitationsGroup>
