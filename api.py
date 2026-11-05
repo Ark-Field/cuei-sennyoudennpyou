@@ -35,7 +35,7 @@ else:
 APP_ID = 34  # @pocket対象アプリID
 
 # ==========================================
-# 3. APIデータ取得関数（成功事例の堅実な実装）
+# 3. APIデータ取得関数
 # ==========================================
 def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, target_publisher=None):
     url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records"
@@ -74,6 +74,7 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, t
                     rec_body = {}
                 
                 merged_body = {**item, **rec_body}
+                # レコードIDの正確な取得
                 merged_body["_recordId"] = item.get("Id", item.get("recordId", item.get("ResultId", rec_body.get("Id", ""))))
                 parsed_records.append(merged_body)
             
@@ -246,14 +247,13 @@ with tab1:
                     "Content-Type": "application/json"
                 }
                 success_count = 0
-                fail_count = 0
                 
                 for r_idx, group_df in checked_rows.groupby("_record_idx"):
                     r_idx = int(r_idx)
                     original_rec = api_records[r_idx]
                     record_id = original_rec.get("_recordId")
                     if not record_id:
-                        fail_count += 1
+                        st.error(f"❌ レコードIDが見つかりません (index: {r_idx})")
                         continue
                     
                     update_url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records/{record_id}"
@@ -295,9 +295,10 @@ with tab1:
                         if res.status_code in [200, 204]:
                             success_count += 1
                         else:
-                            fail_count += 1
-                    except Exception:
-                        fail_count += 1
+                            # ★ 失敗した原因を画面に赤字で詳しく表示するデバッグ
+                            st.error(f"❌ 書き戻しエラー (ID: {record_id}, ステータス: {res.status_code}): {res.text}")
+                    except Exception as ex:
+                        st.error(f"🚨 例外発生: {ex}")
                 
                 if success_count > 0:
                     st.success(f"✅ {success_count} 件のレコードを正常に上書き保存しました！")
@@ -333,7 +334,6 @@ with tab2:
                     
         st.success(f"✨ 予定日【 {target_date_str} 】の明細データが **{len(df_t2_raw)} 件** ヒットしました！下の表で直接入力・編集できます。")
         
-        # ★ タブ2専用のデータエディタ（納品数、PL数、見本数、配車区分、納品日、摘要などを入力・書き戻し可能に！）
         edited_t2_df = st.data_editor(
             df_t2_raw,
             num_rows="fixed",
@@ -353,10 +353,10 @@ with tab2:
                 "預かり数": st.column_config.TextColumn("預かり数", disabled=True),
                 "予定日": st.column_config.DateColumn("予定日", format="YYYY-MM-DD", disabled=True),
                 "納品日": st.column_config.DateColumn("納品日", format="YYYY-MM-DD"),
-                "納品数": st.column_config.TextColumn("納品数"),       # ★入力可能
-                "PL数": st.column_config.TextColumn("PL数"),         # ★入力可能
-                "見本数": st.column_config.TextColumn("見本数"),       # ★入力可能
-                "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "便なし", "A車", "B車", "C車", "チャーター"]), # ★選択・入力可能
+                "納品数": st.column_config.TextColumn("納品数"),
+                "PL数": st.column_config.TextColumn("PL数"),
+                "見本数": st.column_config.TextColumn("見本数"),
+                "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "便なし", "A車", "B車", "C車", "チャーター"]),
                 "摘要": st.column_config.TextColumn("摘要"),
                 "在庫納品": st.column_config.CheckboxColumn("在庫納品"),
                 "専用伝票番号": st.column_config.TextColumn("伝票番号"),
@@ -375,14 +375,13 @@ with tab2:
                     "Content-Type": "application/json"
                 }
                 success_count = 0
-                fail_count = 0
                 
                 for r_idx, group_df in checked_t2.groupby("_record_idx"):
                     r_idx = int(r_idx)
                     original_rec = api_records[r_idx]
                     record_id = original_rec.get("_recordId")
                     if not record_id:
-                        fail_count += 1
+                        st.error(f"❌ レコードIDが見つかりません (index: {r_idx})")
                         continue
                     
                     update_url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records/{record_id}"
@@ -424,9 +423,10 @@ with tab2:
                         if res.status_code in [200, 204]:
                             success_count += 1
                         else:
-                            fail_count += 1
-                    except Exception:
-                        fail_count += 1
+                            # ★ 失敗した原因を画面に赤字で詳しく表示するデバッグ
+                            st.error(f"❌ タブ2書き戻しエラー (ID: {record_id}, ステータス: {res.status_code}): {res.text}")
+                    except Exception as ex:
+                        st.error(f"🚨 例外発生: {ex}")
                 
                 if success_count > 0:
                     st.success(f"✅ {success_count} 件のデータを@pocketへ正常に書き戻しました！")
@@ -435,7 +435,6 @@ with tab2:
                     st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end)
                     st.rerun()
 
-        # PDF生成用に編集後のデータ（edited_t2_df）を使用
         df_t2_flat = edited_t2_df
 
         st.divider()
