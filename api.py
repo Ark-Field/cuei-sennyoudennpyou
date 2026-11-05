@@ -8,7 +8,7 @@ import streamlit as st
 import copy
 
 # ReportLab関連（PDF出力用）
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
@@ -153,13 +153,12 @@ def build_flat_data(records):
         h_format = str(r.get("field-23", ""))  # 判型
         h_isbn = str(r.get("field-93", ""))
         
-        # 親テーブルの数値・数量系フィールド
         h_print_qty = str(r.get("field-3", ""))   # 印刷部数
-        h_qty = str(r.get("field-4", ""))         # 受注数量（製本数）
+        h_qty = str(r.get("field-4", ""))         # 受注数量
         h_tanka = str(r.get("field-5", ""))       # 単価
         h_price = str(r.get("field-20", ""))      # 定価
         h_shukai = str(r.get("field-29", ""))     # 刷回
-        h_deposit = str(r.get("field-81", ""))    # 預かり数
+        h_deposit = str(r.get("field-81", ""))    # 預かり在庫
         
         if h_tanka.lower() in ["nan", "none", ""]:
             h_tanka = "0"
@@ -197,20 +196,19 @@ def build_flat_data(records):
                 "受注日": h_ord_date,
                 "出版社名": h_pub,
                 "書名": h_title,
-                "判型": h_format,         # field-23
+                "判型": h_format,
                 "ISBN": h_isbn,
-                "印刷部数": h_print_qty,  # field-3 (親)
-                "受注数量": h_qty,        # field-4 (親)
-                "定価": h_price,          # field-20
-                "印字数": str(r.get("field-3", "")),
-                "預かり数": h_deposit,
+                "印刷部数": h_print_qty,
+                "受注数量": h_qty,
+                "定価": h_price,
+                "預かり在庫": h_deposit,
                 "予定日": parse_date_safe(rec_90.get("field-90_8")),
                 "納品日": parse_date_safe(rec_88.get("field-88_2")),
-                "納品数": str(rec_88.get("field-88_4", "")),
+                "納品部数": str(rec_88.get("field-88_4", "")),  # 納品数
                 "PL数": str(rec_88.get("field-88_7", "")),
-                "見本数": str(rec_88.get("field-88_8", "")),
-                "刷回": h_shukai,         # field-29 (親)
-                "単価": h_tanka,          # field-5 (親)
+                "見本": str(rec_88.get("field-88_8", "")),       # 見本数
+                "刷回": h_shukai,
+                "単価": h_tanka,
                 "摘要": str(rec_88.get("field-88_5", "")),
                 "在庫納品": bool(rec_88.get("field-88_6", False)),
                 "専用伝票番号": str(rec_88.get("field-88_9", "")),
@@ -261,15 +259,15 @@ with tab1:
                 "書名": st.column_config.TextColumn("書名", disabled=True),
                 "判型": st.column_config.TextColumn("判型(23)"),
                 "ISBN": st.column_config.TextColumn("ISBN", disabled=True),
-                "印刷部数": st.column_config.TextColumn("印刷部数(3)"),  # field-3
-                "受注数量": st.column_config.TextColumn("受注数量(4)"),  # field-4
+                "印刷部数": st.column_config.TextColumn("印刷部数(3)"),
+                "受注数量": st.column_config.TextColumn("受注数量(4)"),
                 "定価": st.column_config.TextColumn("定価", disabled=True),
-                "預かり数": st.column_config.TextColumn("預かり数", disabled=True),
+                "預かり在庫": st.column_config.TextColumn("預かり在庫(81)"),
                 "予定日": st.column_config.DateColumn("予定日(90_8)", format="YYYY-MM-DD", disabled=True),
                 "納品日": st.column_config.DateColumn("納品日", format="YYYY-MM-DD"),
-                "納品数": st.column_config.TextColumn("納品数"),
+                "納品部数": st.column_config.TextColumn("納品部数"),
                 "PL数": st.column_config.TextColumn("PL数"),
-                "見本数": st.column_config.TextColumn("見本数"),
+                "見本": st.column_config.TextColumn("見本"),
                 "刷回": st.column_config.TextColumn("刷回(29)"),
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "摘要": st.column_config.TextColumn("摘要"),
@@ -301,17 +299,16 @@ with tab1:
                     
                     update_url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records/{record_id}"
                     first_row = group_df.iloc[0]
-                    # 親テーブルのフィールド群を一括送信
                     record_payload = {
                         "field-1": str(first_row["受注日"]) if pd.notna(first_row["受注日"]) else "",
                         "field-2": str(first_row["受注番号"]),
-                        "field-3": str(first_row["印刷部数"]),  # field-3
-                        "field-4": str(first_row["受注数量"]),  # field-4
-                        "field-5": str(first_row["単価"]),      # field-5
+                        "field-3": str(first_row["印刷部数"]),
+                        "field-4": str(first_row["受注数量"]),
+                        "field-5": str(first_row["単価"]),
                         "field-20": str(first_row["定価"]),
-                        "field-23": str(first_row["判型"]),     # field-23
-                        "field-29": str(first_row["刷回"]),     # field-29
-                        "field-81": str(first_row["預かり数"]),
+                        "field-23": str(first_row["判型"]),
+                        "field-29": str(first_row["刷回"]),
+                        "field-81": str(first_row["預かり在庫"]),
                         "field-93": str(first_row["ISBN"]),
                     }
                     
@@ -323,11 +320,11 @@ with tab1:
                         rec_dict = item_88.get("record", {}) if isinstance(item_88, dict) else {}
                         
                         rec_dict["field-88_2"] = str(row["納品日"]) if pd.notna(row["納品日"]) else ""
-                        rec_dict["field-88_4"] = str(row["納品数"])
+                        rec_dict["field-88_4"] = str(row["納品部数"])
                         rec_dict["field-88_5"] = str(row["摘要"])
                         rec_dict["field-88_6"] = bool(row["在庫納品"])
                         rec_dict["field-88_7"] = str(row["PL数"])
-                        rec_dict["field-88_8"] = str(row["見本数"])
+                        rec_dict["field-88_8"] = str(row["見本"])
                         rec_dict["field-88_9"] = str(row["専用伝票番号"])
                         
                         h_val = row["配車区分"]
@@ -353,7 +350,9 @@ with tab1:
                 
                 if success_count > 0:
                     st.success(f"✅ {success_count} 件のレコードを正常に上書き保存しました！")
-                    st.session_state["api_records"] = fetch_pocket_records(start_date=t1_start, end_date=t1_end)
+                    default_end = date.today()
+                    default_start = default_end - timedelta(days=60)
+                    st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end)
                     st.rerun()
     else:
         st.info("ℹ️ 表示するデータがありません。")
@@ -399,15 +398,15 @@ with tab2:
                 "書名": st.column_config.TextColumn("書名", disabled=True),
                 "判型": st.column_config.TextColumn("判型"),
                 "ISBN": st.column_config.TextColumn("ISBN", disabled=True),
-                "印刷部数": st.column_config.TextColumn("印刷部数"),  # field-3
-                "受注数量": st.column_config.TextColumn("受注数量"),  # field-4
+                "印刷部数": st.column_config.TextColumn("印刷部数"),
+                "受注数量": st.column_config.TextColumn("受注数量"),
                 "定価": st.column_config.TextColumn("定価", disabled=True),
-                "預かり数": st.column_config.TextColumn("預かり数", disabled=True),
+                "預かり在庫": st.column_config.TextColumn("預かり在庫"),
                 "予定日": st.column_config.DateColumn("予定日", format="YYYY-MM-DD", disabled=True),
                 "納品日": st.column_config.DateColumn("納品日", format="YYYY-MM-DD"),
-                "納品数": st.column_config.TextColumn("納品数"),
+                "納品部数": st.column_config.TextColumn("納品部数"),
                 "PL数": st.column_config.TextColumn("PL数"),
-                "見本数": st.column_config.TextColumn("見本数"),
+                "見本": st.column_config.TextColumn("見本"),
                 "刷回": st.column_config.TextColumn("刷回(29)"),
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
@@ -442,13 +441,13 @@ with tab2:
                     record_payload = {
                         "field-1": str(first_row["受注日"]) if pd.notna(first_row["受注日"]) else "",
                         "field-2": str(first_row["受注番号"]),
-                        "field-3": str(first_row["印刷部数"]),  # field-3
-                        "field-4": str(first_row["受注数量"]),  # field-4
-                        "field-5": str(first_row["単価"]),      # field-5
+                        "field-3": str(first_row["印刷部数"]),
+                        "field-4": str(first_row["受注数量"]),
+                        "field-5": str(first_row["単価"]),
                         "field-20": str(first_row["定価"]),
-                        "field-23": str(first_row["判型"]),     # field-23
-                        "field-29": str(first_row["刷回"]),     # field-29
-                        "field-81": str(first_row["預かり数"]),
+                        "field-23": str(first_row["判型"]),
+                        "field-29": str(first_row["刷回"]),
+                        "field-81": str(first_row["預かり在庫"]),
                         "field-93": str(first_row["ISBN"]),
                     }
                     
@@ -460,11 +459,11 @@ with tab2:
                         rec_dict = item_88.get("record", {}) if isinstance(item_88, dict) else {}
                         
                         rec_dict["field-88_2"] = str(row["納品日"]) if pd.notna(row["納品日"]) else ""
-                        rec_dict["field-88_4"] = str(row["納品数"])
+                        rec_dict["field-88_4"] = str(row["納品部数"])
                         rec_dict["field-88_5"] = str(row["摘要"])
                         rec_dict["field-88_6"] = bool(row["在庫納品"])
                         rec_dict["field-88_7"] = str(row["PL数"])
-                        rec_dict["field-88_8"] = str(row["見本数"])
+                        rec_dict["field-88_8"] = str(row["見本"])
                         rec_dict["field-88_9"] = str(row["専用伝票番号"])
                         
                         h_val = row["配車区分"]
@@ -498,59 +497,72 @@ with tab2:
         df_t2_flat = edited_t2_df
 
         st.divider()
-        st.subheader("🖨️ 各種出力（納品予定表 ＆ 専用伝票）")
+        st.subheader("🖨️ 各種出力（納品管理帳 ＆ 専用伝票）")
         
         col_out1, col_out2 = st.columns(2)
         
-        # --- ① 納品予定表PDFの生成 ---
+        # --- ① 納品管理帳（予定表）PDFの生成（★ A4横サイズ・ご指定の列順完全準拠） ---
         with col_out1:
-            if st.button("🚀 顧客別・便別 納品予定表PDFを生成", type="secondary", key="btn_generate_schedule_pdf"):
+            if st.button("🚀 顧客別・便別 納品管理帳(予定表)PDFを生成 [A4横]", type="secondary", key="btn_generate_schedule_pdf"):
                 buffer_sch = io.BytesIO()
-                doc_sch = SimpleDocTemplate(buffer_sch, pagesize=A4, rightMargin=15*mm, leftMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
+                doc_sch = SimpleDocTemplate(buffer_sch, pagesize=landscape(A4), rightMargin=15*mm, leftMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
                 story_sch = []
                 
                 styles = getSampleStyleSheet()
-                title_style = ParagraphStyle('JpTitle', parent=styles['Heading1'], fontName=JP_FONT, fontSize=16, leading=22, alignment=1)
-                heading_style = ParagraphStyle('JpHeading', parent=styles['Heading2'], fontName=JP_FONT, fontSize=11, leading=16)
+                title_style = ParagraphStyle('JpTitle', parent=styles['Heading1'], fontName=JP_FONT, fontSize=15, leading=20, alignment=1)
+                heading_style = ParagraphStyle('JpHeading', parent=styles['Heading2'], fontName=JP_FONT, fontSize=11, leading=15)
                 cell_style = ParagraphStyle('JpCell', parent=styles['Normal'], fontName=JP_FONT, fontSize=8, leading=11)
+                cell_right = ParagraphStyle('JpCellR', parent=styles['Normal'], fontName=JP_FONT, fontSize=8, leading=11, alignment=2)
 
                 story_sch.append(Paragraph(f"<b>納品管理帳（予定表） （予定日: {target_date_str}）</b>", title_style))
-                story_sch.append(Spacer(1, 8*mm))
+                story_sch.append(Spacer(1, 6*mm))
                 
                 for (pub, vehicle), group in df_t2_flat.groupby(["出版社名", "配車区分"]):
                     story_sch.append(Paragraph(f"<b>■ 宛先（顧客）: {pub}  ／  配車便: {vehicle}</b>", heading_style))
                     story_sch.append(Spacer(1, 2*mm))
                     
+                    # ご指定の列順: 判型/書名/ISBN, 刷回, 定価, 印刷部数, 納品部数, 見本, 総部数, 単価, 預り在庫, 売上(納品金額)
                     table_data = [[
                         Paragraph("<b>判型 / 書名 / ISBN</b>", cell_style),
                         Paragraph("<b>刷回</b>", cell_style),
                         Paragraph("<b>定価</b>", cell_style),
-                        Paragraph("<b>納品数</b>", cell_style),
+                        Paragraph("<b>印刷部数</b>", cell_style),
+                        Paragraph("<b>納品部数</b>", cell_style),
                         Paragraph("<b>見本</b>", cell_style),
                         Paragraph("<b>総部数</b>", cell_style),
                         Paragraph("<b>単価</b>", cell_style),
+                        Paragraph("<b>預り在庫</b>", cell_style),
                         Paragraph("<b>売上(納品金額)</b>", cell_style)
                     ]]
                     
                     for _, row in group.iterrows():
-                        n_qty = safe_float(row.get("納品数", 0))
-                        m_qty = safe_float(row.get("見本数", 0))
+                        n_qty = safe_float(row.get("納品部数", 0))
+                        m_qty = safe_float(row.get("見本", 0))
                         tanka = safe_float(row.get("単価", 0))
                         total_qty = int(n_qty + m_qty)
                         uriage = int(total_qty * tanka)
 
+                        format_val = row.get('判型', '')
+                        title_val = row.get('書名', '')
+                        isbn_val = row.get('ISBN', '')
+                        
+                        book_info_html = f"[{format_val}] {title_val}<br/>(ISBN: {isbn_val})"
+
                         table_data.append([
-                            Paragraph(f"[{row.get('判型', '')}] {row.get('書名', '')}<br/>(ISBN: {row.get('ISBN', '')})", cell_style),
+                            Paragraph(book_info_html, cell_style),
                             Paragraph(str(row.get("刷回", "")), cell_style),
-                            Paragraph(str(row.get("定価", "")), cell_style),
-                            Paragraph(str(row.get("納品数", "")), cell_style),
-                            Paragraph(str(row.get("見本数", "")), cell_style),
-                            Paragraph(str(total_qty), cell_style),
-                            Paragraph(str(row.get("単価", "")), cell_style),
-                            Paragraph(f"{uriage:,}", cell_style),
+                            Paragraph(str(row.get("定価", "")), cell_right),
+                            Paragraph(str(row.get("印刷部数", "")), cell_right),
+                            Paragraph(str(row.get("納品部数", "")), cell_right),
+                            Paragraph(str(row.get("見本", "")), cell_right),
+                            Paragraph(str(total_qty), cell_right),
+                            Paragraph(str(row.get("単価", "")), cell_right),
+                            Paragraph(str(row.get("預かり在庫", "")), cell_right),
+                            Paragraph(f"{uriage:,}", cell_right),
                         ])
                     
-                    schedule_table = Table(table_data, colWidths=[65*mm, 15*mm, 15*mm, 15*mm, 12*mm, 15*mm, 15*mm, 28*mm])
+                    # A4横幅に合わせた列幅設計
+                    schedule_table = Table(table_data, colWidths=[87*mm, 15*mm, 18*mm, 18*mm, 18*mm, 14*mm, 18*mm, 18*mm, 20*mm, 30*mm])
                     schedule_table.setStyle(TableStyle([
                         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
                         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
@@ -566,9 +578,9 @@ with tab2:
                 buffer_sch.seek(0)
                 
                 st.download_button(
-                    label="📥 納品予定表PDFをダウンロード",
+                    label="📥 納品管理帳(予定表)PDFをダウンロード [A4横]",
                     data=buffer_sch,
-                    file_name=f"納品予定表_{target_date_str}.pdf",
+                    file_name=f"納品管理帳_{target_date_str}.pdf",
                     mime="application/pdf",
                     key="dl_sch_pdf"
                 )
@@ -622,13 +634,13 @@ with tab2:
                                 Paragraph("<b>判型 / 書名 / ISBN</b>", slip_cell_style),
                                 Paragraph("<b>定価・刷回</b>", slip_cell_style),
                                 Paragraph("<b>単価</b>", slip_cell_style),
-                                Paragraph("<b>納品数</b>", slip_cell_style),
+                                Paragraph("<b>納品部数</b>", slip_cell_style),
                                 Paragraph("<b>PL数</b>", slip_cell_style),
-                                Paragraph("<b>見本数</b>", slip_cell_style)
+                                Paragraph("<b>見本</b>", slip_cell_style)
                             ],
                             [
                                 Paragraph("<b>備考 / 摘要</b>", slip_cell_style),
-                                Paragraph("<b>預かり数</b>", slip_cell_style),
+                                Paragraph("<b>預かり在庫</b>", slip_cell_style),
                                 Paragraph("<b>在庫納品</b>", slip_cell_style),
                                 "", "", "", ""
                             ]
@@ -640,13 +652,13 @@ with tab2:
                                 Paragraph(f"[{item.get('判型', '')}] {item.get('書名', '')}<br/>(ISBN: {item.get('ISBN', '')})", slip_cell_style),
                                 Paragraph(f"定:{item.get('定価', '')} / 刷:{item.get('刷回', '')}", slip_cell_style),
                                 Paragraph(str(item.get("単価", "")), slip_cell_style),
-                                Paragraph(str(item.get("納品数", "")), slip_cell_style),
+                                Paragraph(str(item.get("納品部数", "")), slip_cell_style),
                                 Paragraph(str(item.get("PL数", "")), slip_cell_style),
-                                Paragraph(str(item.get("見本数", "")), slip_cell_style)
+                                Paragraph(str(item.get("見本", "")), slip_cell_style)
                             ]
                             row2 = [
                                 Paragraph(str(item.get("摘要", "")), slip_cell_style),
-                                Paragraph(f"預:{item.get('預かり数', '')}", slip_cell_style),
+                                Paragraph(f"預:{item.get('預かり在庫', '')}", slip_cell_style),
                                 Paragraph("✓" if item.get("在庫納品") else "", slip_cell_style),
                                 "", "", "", ""
                             ]
@@ -656,7 +668,7 @@ with tab2:
                         while len(page_rows) < 14:
                             page_rows.append(["", "", "", "", "", "", ""])
                             
-                        slip_table = Table(page_rows, colWidths=[25*mm, 65*mm, 20*mm, 15*mm, 12*mm, 12*mm, 13*mm])
+                        slip_table = Table(page_rows, colWidths=[25*mm, 65*mm, 20*mm, 15*mm, 15*mm, 12*mm, 13*mm])
                         slip_table.setStyle(TableStyle([
                             ('GRID', (0,0), (-1,-1), 0.5, colors.black),
                             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
