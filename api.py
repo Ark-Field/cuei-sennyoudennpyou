@@ -150,15 +150,15 @@ def build_flat_data(records):
         h_ord_date = parse_date_safe(r.get("field-1"))
         h_pub = str(r.get("field-8", ""))
         h_title = str(r.get("field-13", ""))
-        h_format = str(r.get("field-23", ""))  # 判型
+        h_format = str(r.get("field-23", ""))
         h_isbn = str(r.get("field-93", ""))
         
-        h_print_qty = str(r.get("field-3", ""))   # 印刷部数
-        h_qty = str(r.get("field-4", ""))         # 受注数量
-        h_tanka = str(r.get("field-5", ""))       # 単価
-        h_price = str(r.get("field-20", ""))      # 定価
-        h_shukai = str(r.get("field-29", ""))     # 刷回
-        h_deposit = str(r.get("field-81", ""))    # 預かり在庫
+        h_print_qty = str(r.get("field-3", ""))
+        h_qty = str(r.get("field-4", ""))
+        h_tanka = str(r.get("field-5", ""))
+        h_price = str(r.get("field-20", ""))
+        h_shukai = str(r.get("field-29", ""))
+        h_deposit = str(r.get("field-81", ""))
         
         if h_tanka.lower() in ["nan", "none", ""]:
             h_tanka = "0"
@@ -204,9 +204,9 @@ def build_flat_data(records):
                 "預かり在庫": h_deposit,
                 "予定日": parse_date_safe(rec_90.get("field-90_8")),
                 "納品日": parse_date_safe(rec_88.get("field-88_2")),
-                "納品部数": str(rec_88.get("field-88_4", "")),  # 納品数
+                "納品部数": str(rec_88.get("field-88_4", "")),
                 "PL数": str(rec_88.get("field-88_7", "")),
-                "見本": str(rec_88.get("field-88_8", "")),       # 見本数
+                "見本": str(rec_88.get("field-88_8", "")),
                 "刷回": h_shukai,
                 "単価": h_tanka,
                 "摘要": str(rec_88.get("field-88_5", "")),
@@ -501,7 +501,7 @@ with tab2:
         
         col_out1, col_out2 = st.columns(2)
         
-        # --- ① 納品管理帳（予定表）PDFの生成（★ A4横サイズ・ご指定の列順完全準拠） ---
+        # --- ① 納品管理帳（予定表）PDFの生成（A4横サイズ） ---
         with col_out1:
             if st.button("🚀 顧客別・便別 納品管理帳(予定表)PDFを生成 [A4横]", type="secondary", key="btn_generate_schedule_pdf"):
                 buffer_sch = io.BytesIO()
@@ -521,7 +521,6 @@ with tab2:
                     story_sch.append(Paragraph(f"<b>■ 宛先（顧客）: {pub}  ／  配車便: {vehicle}</b>", heading_style))
                     story_sch.append(Spacer(1, 2*mm))
                     
-                    # ご指定の列順: 判型/書名/ISBN, 刷回, 定価, 印刷部数, 納品部数, 見本, 総部数, 単価, 預り在庫, 売上(納品金額)
                     table_data = [[
                         Paragraph("<b>判型 / 書名 / ISBN</b>", cell_style),
                         Paragraph("<b>刷回</b>", cell_style),
@@ -561,7 +560,6 @@ with tab2:
                             Paragraph(f"{uriage:,}", cell_right),
                         ])
                     
-                    # A4横幅に合わせた列幅設計
                     schedule_table = Table(table_data, colWidths=[87*mm, 15*mm, 18*mm, 18*mm, 18*mm, 14*mm, 18*mm, 18*mm, 20*mm, 30*mm])
                     schedule_table.setStyle(TableStyle([
                         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
@@ -585,9 +583,9 @@ with tab2:
                     key="dl_sch_pdf"
                 )
 
-        # --- ② 専用伝票PDFの生成 ---
+        # --- ② 専用伝票PDFの生成（★ 項目名なし・罫線なし・9ポイント特化型） ---
         with col_out2:
-            if st.button("🚀 【番号死守】専用伝票PDFを生成", type="primary", key="btn_generate_slips"):
+            if st.button("🚀 【専用伝票】項目・罫線なし・9ptで生成", type="primary", key="btn_generate_slips"):
                 grouped = df_t2_flat.groupby(["出版社名", "配車区分"])
                 
                 updated_count = 0
@@ -613,8 +611,9 @@ with tab2:
                 story_slip = []
                 
                 styles = getSampleStyleSheet()
-                slip_cell_style = ParagraphStyle('SlipCell', parent=styles['Normal'], fontName=JP_FONT, fontSize=9, leading=12)
-                slip_header_style = ParagraphStyle('SlipHeader', parent=styles['Normal'], fontName=JP_FONT, fontSize=10, leading=14)
+                # ユーザー様ご指定の文字サイズ「9ポイント」（leadingは12ptで設定）
+                slip_cell_style = ParagraphStyle('SlipCell9', parent=styles['Normal'], fontName=JP_FONT, fontSize=9, leading=12)
+                slip_header_style = ParagraphStyle('SlipHeader9', parent=styles['Normal'], fontName=JP_FONT, fontSize=9, leading=12)
                 
                 for (pub, vehicle), group in df_t2_flat.groupby(["出版社名", "配車区分"]):
                     items = group.to_dict(orient="records")
@@ -624,38 +623,26 @@ with tab2:
                     for i in range(0, len(items), CHUNK_SIZE):
                         chunk = items[i:i + CHUNK_SIZE]
                         
-                        header_text = f"<b>【専用伝票】 宛先: {pub} 御中  配車便: {vehicle}  伝票番号: 第 {slip_no} 号  予定日: {target_date_str}</b>"
+                        # 支給伝票に印刷されているため、タイトルや宛先ヘッダーも控えめに9ptで位置合わせ用に配置（不要な場合は空に調整可能）
+                        header_text = f"宛先: {pub}  便: {vehicle}  伝票No: {slip_no}  予定日: {target_date_str}"
                         story_slip.append(Paragraph(header_text, slip_header_style))
-                        story_slip.append(Spacer(1, 5*mm))
+                        story_slip.append(Spacer(1, 15*mm)) # 伝票のヘッダー位置に応じた微調整用スペース
                         
-                        page_rows = [
-                            [
-                                Paragraph("<b>受注番号</b>", slip_cell_style),
-                                Paragraph("<b>判型 / 書名 / ISBN</b>", slip_cell_style),
-                                Paragraph("<b>定価・刷回</b>", slip_cell_style),
-                                Paragraph("<b>単価</b>", slip_cell_style),
-                                Paragraph("<b>納品部数</b>", slip_cell_style),
-                                Paragraph("<b>PL数</b>", slip_cell_style),
-                                Paragraph("<b>見本</b>", slip_cell_style)
-                            ],
-                            [
-                                Paragraph("<b>備考 / 摘要</b>", slip_cell_style),
-                                Paragraph("<b>預かり在庫</b>", slip_cell_style),
-                                Paragraph("<b>在庫納品</b>", slip_cell_style),
-                                "", "", "", ""
-                            ]
-                        ]
+                        page_rows = []
                         
+                        # ★ 項目名（ヘッダー行）は完全に排除し、純粋にデータ行のみを配置します
                         for item in chunk:
+                            # 行1データ：受注番号, 書名/判型/ISBN, 定価・刷回, 単価, 納品部数, PL数, 見本
                             row1 = [
                                 Paragraph(str(item.get("受注番号", "")), slip_cell_style),
-                                Paragraph(f"[{item.get('判型', '')}] {item.get('書名', '')}<br/>(ISBN: {item.get('ISBN', '')})", slip_cell_style),
-                                Paragraph(f"定:{item.get('定価', '')} / 刷:{item.get('刷回', '')}", slip_cell_style),
+                                Paragraph(f"[{item.get('判型', '')}] {item.get('書名', '')} (ISBN: {item.get('ISBN', '')})", slip_cell_style),
+                                Paragraph(f"定:{item.get('定価', '')} 刷:{item.get('刷回', '')}", slip_cell_style),
                                 Paragraph(str(item.get("単価", "")), slip_cell_style),
                                 Paragraph(str(item.get("納品部数", "")), slip_cell_style),
                                 Paragraph(str(item.get("PL数", "")), slip_cell_style),
                                 Paragraph(str(item.get("見本", "")), slip_cell_style)
                             ]
+                            # 行2データ：摘要・備考、預かり在庫、在庫納品フラグなど
                             row2 = [
                                 Paragraph(str(item.get("摘要", "")), slip_cell_style),
                                 Paragraph(f"預:{item.get('預かり在庫', '')}", slip_cell_style),
@@ -670,10 +657,10 @@ with tab2:
                             
                         slip_table = Table(page_rows, colWidths=[25*mm, 65*mm, 20*mm, 15*mm, 15*mm, 12*mm, 13*mm])
                         slip_table.setStyle(TableStyle([
-                            ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+                            # ★ 罫線（GRID）は一切なし（透明）に設定
                             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                            ('TOPPADDING', (0,0), (-1,-1), 3),
-                            ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+                            ('TOPPADDING', (0,0), (-1,-1), 2),
+                            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
                         ]))
                         
                         story_slip.append(slip_table)
@@ -683,7 +670,7 @@ with tab2:
                 buffer_slip.seek(0)
                 
                 st.download_button(
-                    label="📥 専用伝票PDFをダウンロード",
+                    label="📥 専用伝票PDFをダウンロード [項目・罫線なし/9pt]",
                     data=buffer_slip,
                     file_name=f"納品専用伝票_{target_date_str}.pdf",
                     mime="application/pdf",
