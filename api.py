@@ -104,7 +104,7 @@ def parse_date_safe(val):
 # ==========================================
 if "api_records" not in st.session_state:
     default_end = date.today()
-    default_start = default_end - timedelta(days=60)  # 範囲を広げて未来の予定や納品もキャッチ
+    default_start = default_end - timedelta(days=60)
     st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end)
 
 api_records = st.session_state.get("api_records", [])
@@ -128,9 +128,9 @@ for record_idx, r in enumerate(api_records):
     h_title = str(r.get("field-13", ""))
     h_isbn = str(r.get("field-93", ""))
     h_qty = str(r.get("field-4", ""))
-    h_price = str(r.get("field-20", "")) # 定価
-    h_print_qty = str(r.get("field-3", "")) # 印字数
-    h_deposit = str(r.get("field-81", "")) # 預かり数
+    h_price = str(r.get("field-20", ""))
+    h_print_qty = str(r.get("field-3", ""))
+    h_deposit = str(r.get("field-81", ""))
     
     sub_90 = r.get("field-90", [])
     sub_88 = r.get("field-88", [])
@@ -169,8 +169,8 @@ for record_idx, r in enumerate(api_records):
             "定価": h_price,
             "印字数": h_print_qty,
             "預かり数": h_deposit,
-            "予定日": parse_date_safe(rec_90.get("field-90_8")),  # ★検索の軸（field-90_8）
-            "納品日": parse_date_safe(rec_88.get("field-88_2")),  # 確定納品日
+            "予定日": parse_date_safe(rec_90.get("field-90_8")),
+            "納品日": parse_date_safe(rec_88.get("field-88_2")),
             "納品数": str(rec_88.get("field-88_4", "")),
             "摘要": str(rec_88.get("field-88_5", "")),
             "在庫納品": bool(rec_88.get("field-88_6", False)),
@@ -324,7 +324,6 @@ with tab2:
     
     target_date_str = target_delivery_date.strftime("%Y-%m-%d")
     
-    # 取得済みのメモリ（df_flat）から、指定した「予定日」に一致する行をPython側でピンポイント抽出
     if not df_flat.empty:
         df_t2_flat = df_flat[df_flat["予定日"].astype(str) == target_date_str].copy()
     else:
@@ -510,7 +509,3 @@ with tab2:
                 )
     else:
         st.info(f"ℹ️ 指定された予定日【 {target_date_str} 】（field-90_8）に該当するデータはありません。（タブ1の検索期間を広げるか、該当日のデータを登録してください）")
-
-<ElicitationsGroup message="正常動作の確認と進め方について：">
-  <Elicitation label="アプリを再起動して予定日でのデータ抽出とPDF出力を確認する" query="アプリを再起動し、指定した予定日でデータが正常にヒットするか、納品予定表と専用伝票のPDF出力が動作するか確認します。"/>
-</ElicitationsGroup>
