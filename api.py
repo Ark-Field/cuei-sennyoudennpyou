@@ -150,19 +150,19 @@ def build_flat_data(records):
         h_ord_date = parse_date_safe(r.get("field-1"))
         h_pub = str(r.get("field-8", ""))
         h_title = str(r.get("field-13", ""))
-        h_format = str(r.get("field-23", ""))
+        h_format = str(r.get("field-23", ""))  # 判型
         h_isbn = str(r.get("field-93", ""))
-        h_qty = str(r.get("field-4", ""))
-        h_price = str(r.get("field-20", ""))
-        h_print_qty = str(r.get("field-3", ""))
-        h_deposit = str(r.get("field-81", ""))
         
-        # ★ 親テーブルにある単価(field-5)と刷回(field-29)を確実に取得
-        h_tanka = str(r.get("field-5", ""))
+        # 親テーブルの数値・数量系フィールド
+        h_print_qty = str(r.get("field-3", ""))   # 印刷部数
+        h_qty = str(r.get("field-4", ""))         # 受注数量（製本数）
+        h_tanka = str(r.get("field-5", ""))       # 単価
+        h_price = str(r.get("field-20", ""))      # 定価
+        h_shukai = str(r.get("field-29", ""))     # 刷回
+        h_deposit = str(r.get("field-81", ""))    # 預かり数
+        
         if h_tanka.lower() in ["nan", "none", ""]:
             h_tanka = "0"
-            
-        h_shukai = str(r.get("field-29", ""))
         if h_shukai.lower() in ["nan", "none", ""]:
             h_shukai = ""
 
@@ -197,19 +197,20 @@ def build_flat_data(records):
                 "受注日": h_ord_date,
                 "出版社名": h_pub,
                 "書名": h_title,
-                "判型": h_format,
+                "判型": h_format,         # field-23
                 "ISBN": h_isbn,
-                "製本数": h_qty,
-                "定価": h_price,
-                "印字数": h_print_qty,
+                "印刷部数": h_print_qty,  # field-3 (親)
+                "受注数量": h_qty,        # field-4 (親)
+                "定価": h_price,          # field-20
+                "印字数": str(r.get("field-3", "")),
                 "預かり数": h_deposit,
                 "予定日": parse_date_safe(rec_90.get("field-90_8")),
                 "納品日": parse_date_safe(rec_88.get("field-88_2")),
                 "納品数": str(rec_88.get("field-88_4", "")),
                 "PL数": str(rec_88.get("field-88_7", "")),
                 "見本数": str(rec_88.get("field-88_8", "")),
-                "刷回": h_shukai,   # 親の field-29
-                "単価": h_tanka,    # 親の field-5
+                "刷回": h_shukai,         # field-29 (親)
+                "単価": h_tanka,          # field-5 (親)
                 "摘要": str(rec_88.get("field-88_5", "")),
                 "在庫納品": bool(rec_88.get("field-88_6", False)),
                 "専用伝票番号": str(rec_88.get("field-88_9", "")),
@@ -260,9 +261,9 @@ with tab1:
                 "書名": st.column_config.TextColumn("書名", disabled=True),
                 "判型": st.column_config.TextColumn("判型(23)"),
                 "ISBN": st.column_config.TextColumn("ISBN", disabled=True),
-                "製本数": st.column_config.TextColumn("製本数", disabled=True),
+                "印刷部数": st.column_config.TextColumn("印刷部数(3)"),  # field-3
+                "受注数量": st.column_config.TextColumn("受注数量(4)"),  # field-4
                 "定価": st.column_config.TextColumn("定価", disabled=True),
-                "印字数": st.column_config.TextColumn("印字数", disabled=True),
                 "預かり数": st.column_config.TextColumn("預かり数", disabled=True),
                 "予定日": st.column_config.DateColumn("予定日(90_8)", format="YYYY-MM-DD", disabled=True),
                 "納品日": st.column_config.DateColumn("納品日", format="YYYY-MM-DD"),
@@ -300,17 +301,17 @@ with tab1:
                     
                     update_url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records/{record_id}"
                     first_row = group_df.iloc[0]
-                    # ★ 親テーブル側として単価(field-5)と刷回(field-29)を送信
+                    # 親テーブルのフィールド群を一括送信
                     record_payload = {
-                        "field-2": str(first_row["受注番号"]),
                         "field-1": str(first_row["受注日"]) if pd.notna(first_row["受注日"]) else "",
-                        "field-4": str(first_row["製本数"]),
+                        "field-2": str(first_row["受注番号"]),
+                        "field-3": str(first_row["印刷部数"]),  # field-3
+                        "field-4": str(first_row["受注数量"]),  # field-4
+                        "field-5": str(first_row["単価"]),      # field-5
                         "field-20": str(first_row["定価"]),
-                        "field-3": str(first_row["印字数"]),
+                        "field-23": str(first_row["判型"]),     # field-23
+                        "field-29": str(first_row["刷回"]),     # field-29
                         "field-81": str(first_row["預かり数"]),
-                        "field-23": str(first_row["判型"]),
-                        "field-29": str(first_row["刷回"]),
-                        "field-5": str(first_row["単価"]),
                         "field-93": str(first_row["ISBN"]),
                     }
                     
@@ -352,9 +353,7 @@ with tab1:
                 
                 if success_count > 0:
                     st.success(f"✅ {success_count} 件のレコードを正常に上書き保存しました！")
-                    default_end = date.today()
-                    default_start = default_end - timedelta(days=60)
-                    st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end)
+                    st.session_state["api_records"] = fetch_pocket_records(start_date=t1_start, end_date=t1_end)
                     st.rerun()
     else:
         st.info("ℹ️ 表示するデータがありません。")
@@ -400,9 +399,9 @@ with tab2:
                 "書名": st.column_config.TextColumn("書名", disabled=True),
                 "判型": st.column_config.TextColumn("判型"),
                 "ISBN": st.column_config.TextColumn("ISBN", disabled=True),
-                "製本数": st.column_config.TextColumn("製本数", disabled=True),
+                "印刷部数": st.column_config.TextColumn("印刷部数"),  # field-3
+                "受注数量": st.column_config.TextColumn("受注数量"),  # field-4
                 "定価": st.column_config.TextColumn("定価", disabled=True),
-                "印字数": st.column_config.TextColumn("印字数", disabled=True),
                 "預かり数": st.column_config.TextColumn("預かり数", disabled=True),
                 "予定日": st.column_config.DateColumn("予定日", format="YYYY-MM-DD", disabled=True),
                 "納品日": st.column_config.DateColumn("納品日", format="YYYY-MM-DD"),
@@ -441,15 +440,15 @@ with tab2:
                     update_url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records/{record_id}"
                     first_row = group_df.iloc[0]
                     record_payload = {
-                        "field-2": str(first_row["受注番号"]),
                         "field-1": str(first_row["受注日"]) if pd.notna(first_row["受注日"]) else "",
-                        "field-4": str(first_row["製本数"]),
+                        "field-2": str(first_row["受注番号"]),
+                        "field-3": str(first_row["印刷部数"]),  # field-3
+                        "field-4": str(first_row["受注数量"]),  # field-4
+                        "field-5": str(first_row["単価"]),      # field-5
                         "field-20": str(first_row["定価"]),
-                        "field-3": str(first_row["印字数"]),
+                        "field-23": str(first_row["判型"]),     # field-23
+                        "field-29": str(first_row["刷回"]),     # field-29
                         "field-81": str(first_row["預かり数"]),
-                        "field-23": str(first_row["判型"]),
-                        "field-29": str(first_row["刷回"]),
-                        "field-5": str(first_row["単価"]),
                         "field-93": str(first_row["ISBN"]),
                     }
                     
@@ -574,7 +573,7 @@ with tab2:
                     key="dl_sch_pdf"
                 )
 
-        # --- ② 専用伝票PDFの生成（番号死守ガード ＆ フォント適用） ---
+        # --- ② 専用伝票PDFの生成 ---
         with col_out2:
             if st.button("🚀 【番号死守】専用伝票PDFを生成", type="primary", key="btn_generate_slips"):
                 grouped = df_t2_flat.groupby(["出版社名", "配車区分"])
