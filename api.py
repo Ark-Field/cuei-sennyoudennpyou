@@ -86,8 +86,9 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, t
 def parse_date_safe(val):
     if not val or str(val).lower() in ["nan", "none", ""]:
         return None
+    val_str = str(val).strip().replace("/", "-")[:10]
     try:
-        return datetime.strptime(str(val)[:10].replace("/", "-"), "%Y-%m-%d").date()
+        return datetime.strptime(val_str, "%Y-%m-%d").date()
     except ValueError:
         return None
 
@@ -312,12 +313,18 @@ with tab2:
     
     target_date_str = target_delivery_date.strftime("%Y-%m-%d")
     
-    # 選択した納品日に合致する明細を抽出
+    # 選択した納品日に合致する明細を抽出（堅牢な日付一致判定）
     day_delivery_rows = []
     for row in flat_data:
-        d_val = row["納品日"]
-        if d_val and str(d_val) == target_date_str:
-            day_delivery_rows.append(row)
+        d_val = row.get("納品日")
+        if d_val:
+            if isinstance(d_val, (date, datetime)):
+                d_str = d_val.strftime("%Y-%m-%d")
+            else:
+                d_str = str(d_val).replace("/", "-").strip()[:10]
+            
+            if d_str == target_date_str:
+                day_delivery_rows.append(row)
             
     if day_delivery_rows:
         df_day = pd.DataFrame(day_delivery_rows)
