@@ -57,17 +57,13 @@ else:
 APP_ID = 34  # @pocket対象アプリID
 
 # ==========================================
-# 3. APIデータ取得関数（件数制限＆新着順ソートで1000件の壁を回避）
+# 3. APIデータ取得関数（動いていた当時のシンプルな仕組みに戻しました）
 # ==========================================
 def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, target_publisher=None, date_field="field-1"):
     url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records"
     headers = {"X-At-Pocket-API-Key": POCKET_API_KEY, "Accept": "application/json"}
     
-    # 1000件の壁・タイムアウトを防ぐため、最新データから優先取得＆上限を設定
-    params = {
-        "limit": 500,
-        "sort": f"-{date_field}" if date_field in ["field-1", "field-52"] else "-field-1"
-    }
+    params = {}
     
     if target_order_no:
         params["query"] = f'field-2 = "{target_order_no}"'
@@ -84,9 +80,9 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, t
     
     try:
         response = requests.get(url, headers=headers, params=params, timeout=20)
+        # クエリ付きでエラーになった場合は条件を外して再試行
         if response.status_code != 200 and "query" in params:
-            fallback_params = {"limit": 500, "sort": "-field-1"}
-            response = requests.get(url, headers=headers, params=fallback_params, timeout=20)
+            response = requests.get(url, headers=headers, timeout=20)
         
         if response.status_code == 200:
             result = response.json()
