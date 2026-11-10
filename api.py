@@ -124,11 +124,11 @@ def safe_float(val):
         return 0.0
 
 # ==========================================
-# 4. 初期データロード（初期値：岩波書店）
+# 4. 初期データロード（初期値：本日〜14日後 ＆ 岩波書店）
 # ==========================================
 if "api_records" not in st.session_state:
-    default_end = date.today()
-    default_start = default_end - timedelta(days=60)
+    default_start = date.today()
+    default_end = default_start + timedelta(days=14)
     st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, target_publisher="岩波書店", date_field="field-1")
 
 api_records = st.session_state.get("api_records", [])
@@ -148,7 +148,6 @@ def build_flat_data(records):
     flat = []
     for record_idx, r in enumerate(records):
         record_id = str(r.get("_recordId", ""))
-        # @pocketのブラウザ・API用詳細リンクURLの構築
         pocket_url = f"{POCKET_BASE_URL}/apps/{APP_ID}/records/{record_id}" if record_id else ""
         
         h_ord_no = str(r.get("field-2", ""))
@@ -197,7 +196,7 @@ def build_flat_data(records):
 
             flat.append({
                 "更新": False,
-                "@pocket詳細": pocket_url,  # ★ @pocketジャンプ用リンク列
+                "@pocket詳細": pocket_url,
                 "_record_idx": record_idx,
                 "_sub_idx": i,
                 "_id_90": sub_id_90,
@@ -316,11 +315,11 @@ with tab1:
 
         col_s1, col_s2, col_s3 = st.columns(3)
         with col_s1:
-            default_end = date.today()
-            default_start = default_end - timedelta(days=60)
-            t1_start = st.date_input("期間（開始）", value=default_start, key="t1_s")
+            default_start_date = date.today()
+            default_end_date = default_start_date + timedelta(days=14)
+            t1_start = st.date_input("期間（開始）", value=default_start_date, key="t1_s")
         with col_s2:
-            t1_end = st.date_input("期間（終了）", value=default_end, key="t1_e")
+            t1_end = st.date_input("期間（終了）", value=default_end_date, key="t1_e")
         with col_s3:
             publisher_input = st.text_input("📖 出版社名で絞り込み", value="岩波書店", key="pub_ord")
         
@@ -355,7 +354,7 @@ with tab1:
                 "受注数量": st.column_config.TextColumn("受注数量(4)"),
                 "定価": st.column_config.TextColumn("定価", disabled=True),
                 "預かり在庫": st.column_config.TextColumn("預かり在庫(81)"),
-                "予定日": st.column_config.DateColumn("予定日(90_8)", format="YYYY-MM-DD"),  # 予定日編集可能
+                "予定日": st.column_config.DateColumn("予定日(90_8)", format="YYYY-MM-DD"),
                 "納品日": st.column_config.DateColumn("納品日", format="YYYY-MM-DD"),
                 "納品部数": st.column_config.TextColumn("納品部数"),
                 "PL数": st.column_config.TextColumn("PL数"),
@@ -392,8 +391,8 @@ with tab1:
                 
                 if success_count > 0:
                     st.success(f"✅ {success_count} 件のレコードを正常に上書き保存しました！")
-                    default_end = date.today()
-                    default_start = default_end - timedelta(days=60)
+                    default_start = date.today()
+                    default_end = default_start + timedelta(days=14)
                     st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, target_publisher="岩波書店")
                     st.rerun()
     else:
@@ -446,7 +445,7 @@ with tab2:
                 "受注数量": st.column_config.TextColumn("受注数量"),
                 "定価": st.column_config.TextColumn("定価", disabled=True),
                 "預かり在庫": st.column_config.TextColumn("預かり在庫"),
-                "予定日": st.column_config.DateColumn("予定日", format="YYYY-MM-DD"),  # 予定日編集可能
+                "予定日": st.column_config.DateColumn("予定日", format="YYYY-MM-DD"),
                 "納品日": st.column_config.DateColumn("納品日", format="YYYY-MM-DD"),
                 "納品部数": st.column_config.TextColumn("納品部数"),
                 "PL数": st.column_config.TextColumn("PL数"),
@@ -482,8 +481,8 @@ with tab2:
                 
                 if success_count > 0:
                     st.success(f"✅ {success_count} 件のデータを@pocketへ正常に書き戻しました！")
-                    default_end = date.today()
-                    default_start = default_end - timedelta(days=60)
+                    default_start = date.today()
+                    default_end = default_start + timedelta(days=14)
                     st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, target_publisher="岩波書店")
                     st.rerun()
 
