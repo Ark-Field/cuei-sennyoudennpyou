@@ -9,7 +9,7 @@ import copy
 import openpyxl
 
 # ReportLab関連（PDF出力用）
-from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.pagesizes import landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
@@ -57,7 +57,7 @@ else:
 APP_ID = 34  # @pocket対象アプリID
 
 # ==========================================
-# 3. APIデータ取得関数（受注日・納期 切り替え対応）
+# 3. APIデータ取得関数
 # ==========================================
 def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, target_publisher=None, date_field="field-1"):
     url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records"
@@ -428,7 +428,7 @@ with tab2:
         if st.button("💾 タブ2の変更内容を@pocketに書き戻す", type="primary", key="btn_save_t2"):
             checked_t2 = edited_t2_df[edited_t2_df["更新"] == True]
             if checked_t2.empty:
-                st.warning("⚠️ 書き戻す行の配車区分または更新チェックボックスにチェックを入れてください。")
+                st.warning("⚠️ 書き戻す行の更新チェックボックスにチェックを入れてください。")
             else:
                 headers = {
                     "X-At-Pocket-API-Key": POCKET_API_KEY, 
@@ -644,7 +644,7 @@ with tab2:
                     )
 
         with col_out2:
-            if st.button("🚀 【専用伝票】項目・罫線なし・9ptで生成", type="primary", key="btn_generate_slips"):
+            if st.button("🚀 【専用伝票】寸法・配置完全準拠で生成", type="primary", key="btn_generate_slips"):
                 grouped = df_t2_flat.groupby(["出版社名", "配車区分"])
                 
                 updated_count = 0
@@ -724,54 +724,91 @@ with tab2:
 
                 st.success(f"🔒 番号死守ガード適用（新規採番: {updated_count}件 ＆ @pocket自動保存完了）")
                 
+                # ★ ご指定の寸法に基づいた専用伝票PDF生成設定
+                # 伝票サイズ: 幅17cm × 高さ12cm, 上部マージン3.8mm
+                slip_page_size = (170 * mm, 120 * mm)
                 buffer_slip = io.BytesIO()
-                doc_slip = SimpleDocTemplate(buffer_slip, pagesize=A4, rightMargin=15*mm, leftMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
+                doc_slip = SimpleDocTemplate(
+                    buffer_slip, 
+                    pagesize=slip_page_size, 
+                    leftMargin=5 * mm,    # 左右5mm余白（左側余白5mm ＋ 列幅7項目で計160mm + 左右余白で170mmに収める）
+                    rightMargin=5 * mm, 
+                    topMargin=3.8 * mm,   # 上から3.8mmから開始
+                    bottomMargin=0 * mm
+                )
                 story_slip = []
                 
                 styles = getSampleStyleSheet()
-                slip_cell_style = ParagraphStyle('SlipCell9', parent=styles['Normal'], fontName=JP_FONT, fontSize=9, leading=12)
-                slip_header_style = ParagraphStyle('SlipHeader9', parent=styles['Normal'], fontName=JP_FONT, fontSize=9, leading=12)
+                # 1行の高さが10mmに収まるよう、フォントサイズ7.5pt / leading 9.5ptに調整
+                slip_cell_style = ParagraphStyle(
+                    'SlipCellCustom', 
+                    parent=styles['Normal'], 
+                    fontName=JP_FONT, 
+                    fontSize=7.5, 
+                    leading=9.5
+                )
+                slip_cell_right = ParagraphStyle(
+                    'SlipCellCustomR', 
+                    parent=slip_cell_style, 
+                    alignment=2
+                )
                 
                 for (pub, vehicle), group in df_t2_flat.groupby(["出版社名", "配車区分"]):
                     items = group.to_dict(orient="records")
-                    slip_no = items[0]["専用伝票番号"] if items else "1"
                     
-                    CHUNK_SIZE = 6
+                    CHUNK_SIZE = 6  # 6行固定
                     for i in range(0, len(items), CHUNK_SIZE):
                         chunk = items[i:i + CHUNK_SIZE]
                         
-                        header_text = f"宛先: {pub}  便: {vehicle}  伝票No: {slip_no}  予定日: {target_date_str}"
-                        story_slip.append(Paragraph(header_text, slip_header_style))
-                        story_slip.append(Spacer(1, 15*mm))
-                        
                         page_rows = []
                         for item in chunk:
-                            row1 = [
-                                Paragraph(str(item.get("受注番号", "")), slip_cell_style),
-                                Paragraph(f"[{item.get('判型', '')}] {item.get('書名', '')} (ISBN: {item.get('ISBN', '')})", slip_cell_style),
-                                Paragraph(f"定:{item.get('定価', '')} 刷:{item.get('刷回', '')}", slip_cell_style),
-                                Paragraph(str(item.get("単価", "")), slip_cell_style),
-                                Paragraph(str(item.get("納品部数", "")), slip_cell_style),
-                                Paragraph(str(item.get("PL数", "")), slip_cell_style),
-                                Paragraph(str(item.get("見本", "")), slip_cell_style)
+                            # 1段目（ISBN と 判型を2段表示）
+                            isbn_val = item.get('ISBN', '')
+                            format_val = item.get('判型', '')
+                            col1_text = f"{isbn_val}<br/>{format_val}"
+                            
+                            # 書名
+                            title_val = item.get('书名', '') or item.get('書名', '')
+                            
+                            row_cells = [
+                                Paragraph(col1_text, slip_cell_style),                  # 19mm: ISBNと判型2段
+                                Paragraph(str(title_val), slip_cell_style),             # 70mm: 書名
+                                Paragraph(str(item.get('定価', '')), slip_cell_right),  # 15mm: 定価
+                                Paragraph(str(item.get('刷回', '')), slip_cell_right),  # 11mm: 刷数
+                                Paragraph("", slip_cell_style),                         # 15mm: 空白
+                                Paragraph(str(item.get('納品部数', '')), slip_cell_right),# 15mm: 納品部数
+                                Paragraph(str(item.get('PL数', '')), slip_cell_right),  # 8mm: PL数
+                                Paragraph("", slip_cell_style),                         # 15mm: 空白
+                                Paragraph(str(item.get('見本', '')), slip_cell_right),  # 7mm: 見本数
                             ]
-                            row2 = [
-                                Paragraph(str(item.get("摘要", "")), slip_cell_style),
-                                Paragraph(f"預:{item.get('預かり在庫', '')}", slip_cell_style),
-                                Paragraph("✓" if item.get("在庫納品") else "", slip_cell_style),
-                                "", "", "", ""
-                            ]
-                            page_rows.append(row1)
-                            page_rows.append(row2)
+                            page_rows.append(row_cells)
                         
-                        while len(page_rows) < 14:
-                            page_rows.append(["", "", "", "", "", "", ""])
+                        # 6行に満たない場合は空行で埋める
+                        while len(page_rows) < 6:
+                            empty_row = [Paragraph("", slip_cell_style) for _ in range(9)]
+                            page_rows.append(empty_row)
                         
-                        slip_table = Table(page_rows, colWidths=[25*mm, 65*mm, 20*mm, 15*mm, 15*mm, 12*mm, 13*mm])
+                        # 列幅の割り当て合計 = 19 + 70 + 15 + 11 + 15 + 15 + 8 + 15 + 7 = 160mm （左右5mm余白と合わせて170mm）
+                        col_widths = [
+                            19 * mm,  # ISBN / 判型 (2段)
+                            70 * mm,  # 書名
+                            15 * mm,  # 定価
+                            11 * mm,  # 刷数
+                            15 * mm,  # 空白
+                            15 * mm,  # 納品部数
+                            8 * mm,   # PL数
+                            15 * mm,  # 空白
+                            7 * mm    # 見本数
+                        ]
+                        
+                        # 1行の高さ 10mm × 6行 ＝ 60mm
+                        slip_table = Table(page_rows, colWidths=col_widths, rowHeights=[10 * mm] * 6)
                         slip_table.setStyle(TableStyle([
                             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                            ('TOPPADDING', (0,0), (-1,-1), 2),
-                            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+                            ('TOPPADDING', (0,0), (-1,-1), 1),
+                            ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+                            ('LEFTPADDING', (0,0), (-1,-1), 1),
+                            ('RIGHTPADDING', (0,0), (-1,-1), 1),
                         ]))
                         
                         story_slip.append(slip_table)
@@ -781,7 +818,7 @@ with tab2:
                 buffer_slip.seek(0)
                 
                 st.download_button(
-                    label="📥 専用伝票PDFをダウンロード [項目・罫線なし/9pt]",
+                    label="📥 専用伝票PDFをダウンロード [寸法・配置完全準拠]",
                     data=buffer_slip,
                     file_name=f"納品専用伝票_{target_date_str}.pdf",
                     mime="application/pdf",
