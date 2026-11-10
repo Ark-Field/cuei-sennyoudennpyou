@@ -844,4 +844,9 @@ with tab2:
                 st.download_button(
                     label=label_name,
                     data=buffer_slip,
-                    file_name
+                    file_name=f"納品専用伝票_{target_date_str}.pdf",
+                    mime="application/pdf",
+                    key="dl_slip_pdf"
+                )
+    else:
+        st.info(f"ℹ️ 指定された予定日【 {target_date_str} 】に該当するデータはありません。")
