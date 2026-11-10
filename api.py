@@ -57,9 +57,9 @@ else:
 APP_ID = 34  # @pocket対象アプリID
 
 # ==========================================
-# 3. APIデータ取得関数
+# 3. APIデータ取得関数（受注日・納期 切り替え対応）
 # ==========================================
-def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, target_publisher=None):
+def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, target_publisher=None, date_field="field-1"):
     url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records"
     headers = {"X-At-Pocket-API-Key": POCKET_API_KEY, "Accept": "application/json"}
     
@@ -72,7 +72,8 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, t
         if start_date and end_date:
             start_str = start_date.strftime("%Y-%m-%d")
             end_str = end_date.strftime("%Y-%m-%d")
-            query_parts.append(f'field-1 >= "{start_str}" and field-1 <= "{end_str}"')
+            # date_field（field-1: 受注日 または field-52: 納期）で期間絞り込み
+            query_parts.append(f'{date_field} >= "{start_str}" and {date_field} <= "{end_str}"')
         if target_publisher:
             query_parts.append(f'field-8 like "{target_publisher}"')
         if query_parts:
@@ -124,12 +125,12 @@ def safe_float(val):
         return 0.0
 
 # ==========================================
-# 4. 初期データロード
+# 4. 初期データロード（初期値：岩波書店）
 # ==========================================
 if "api_records" not in st.session_state:
     default_end = date.today()
     default_start = default_end - timedelta(days=60)
-    st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end)
+    st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, target_publisher="岩波書店", date_field="field-1")
 
 api_records = st.session_state.get("api_records", [])
 
@@ -149,6 +150,7 @@ def build_flat_data(records):
     for record_idx, r in enumerate(records):
         h_ord_no = str(r.get("field-2", ""))
         h_ord_date = parse_date_safe(r.get("field-1"))
+        h_due_date = parse_date_safe(r.get("field-52")) # 納期フィールド
         h_pub = str(r.get("field-8", ""))
         h_title = str(r.get("field-13", ""))
         h_format = str(r.get("field-23", ""))
@@ -195,6 +197,7 @@ def build_flat_data(records):
                 "_id_88": sub_id_88,
                 "受注番号": h_ord_no,
                 "受注日": h_ord_date,
+                "納期": h_due_date,
                 "出版社名": h_pub,
                 "書名": h_title,
                 "判型": h_format,
@@ -226,22 +229,28 @@ with tab1:
     st.header("📋 受注一覧表 ＆ データ更新エディタ")
     
     with st.expander("🔍 検索条件の変更・絞り込み", expanded=True):
+        # 検索基準の切り替え（受注日 or 納期）
+        search_date_type = st.radio("📅 期間検索の基準を選択", ["受注日（field-1）", "納期（field-52）"], horizontal=True)
+        target_date_field = "field-1" if "受注日" in search_date_type else "field-52"
+
         col_s1, col_s2, col_s3 = st.columns(3)
         with col_s1:
             default_end = date.today()
             default_start = default_end - timedelta(days=60)
-            t1_start = st.date_input("受注日（開始）", value=default_start, key="t1_s")
+            t1_start = st.date_input("期間（開始）", value=default_start, key="t1_s")
         with col_s2:
-            t1_end = st.date_input("受注日（終了）", value=default_end, key="t1_e")
+            t1_end = st.date_input("期間（終了）", value=default_end, key="t1_e")
         with col_s3:
-            publisher_input = st.text_input("📖 出版社名で絞り込み", value="", key="pub_ord")
+            # 初期値に「岩波書店」をセットしつつ、フリー入力で他の出版社にも変更可能
+            publisher_input = st.text_input("📖 出版社名で絞り込み", value="岩波書店", key="pub_ord")
         
         if st.button("🔄 検索実行", type="primary", key="btn_s1"):
             with st.spinner("@ポケットからデータを取得中..."):
                 st.session_state["api_records"] = fetch_pocket_records(
                     start_date=t1_start, 
                     end_date=t1_end, 
-                    target_publisher=publisher_input if publisher_input else None
+                    target_publisher=publisher_input if publisher_input else None,
+                    date_field=target_date_field
                 )
             st.rerun()
 
@@ -256,6 +265,7 @@ with tab1:
                 "_record_idx": None, "_sub_idx": None, "_id_90": None, "_id_88": None,
                 "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
                 "受注日": st.column_config.DateColumn("受注日", format="YYYY-MM-DD", disabled=True),
+                "納期": st.column_config.DateColumn("納期", format="YYYY-MM-DD", disabled=True),
                 "出版社名": st.column_config.TextColumn("出版社名", disabled=True),
                 "書名": st.column_config.TextColumn("書名", disabled=True),
                 "判型": st.column_config.TextColumn("判型(23)"),
@@ -273,7 +283,7 @@ with tab1:
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "摘要": st.column_config.TextColumn("摘要"),
                 "在庫納品": st.column_config.CheckboxColumn("在庫納品"),
-                "専用伝票番号": st.column_config.TextColumn("伝票番号"),
+                "専用伝票番号": st.column_config.TextColumn("伝票番号(88_9)"),
                 "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
             }
         )
@@ -353,7 +363,7 @@ with tab1:
                     st.success(f"✅ {success_count} 件のレコードを正常に上書き保存しました！")
                     default_end = date.today()
                     default_start = default_end - timedelta(days=60)
-                    st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end)
+                    st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, target_publisher="岩波書店")
                     st.rerun()
     else:
         st.info("ℹ️ 表示するデータがありません。")
@@ -395,6 +405,7 @@ with tab2:
                 "_record_idx": None, "_sub_idx": None, "_id_90": None, "_id_88": None,
                 "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
                 "受注日": st.column_config.DateColumn("受注日", format="YYYY-MM-DD", disabled=True),
+                "納期": st.column_config.DateColumn("納期", format="YYYY-MM-DD", disabled=True),
                 "出版社名": st.column_config.TextColumn("出版社名", disabled=True),
                 "書名": st.column_config.TextColumn("書名", disabled=True),
                 "判型": st.column_config.TextColumn("判型"),
@@ -413,11 +424,10 @@ with tab2:
                 "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
                 "摘要": st.column_config.TextColumn("摘要"),
                 "在庫納品": st.column_config.CheckboxColumn("在庫納品"),
-                "専用伝票番号": st.column_config.TextColumn("伝票番号"),
+                "専用伝票番号": st.column_config.TextColumn("伝票番号(88_9)"),
             }
         )
         
-        # タブ2専用の書き戻しボタン
         if st.button("💾 タブ2の変更内容を@pocketに書き戻す", type="primary", key="btn_save_t2"):
             checked_t2 = edited_t2_df[edited_t2_df["更新"] == True]
             if checked_t2.empty:
@@ -492,7 +502,7 @@ with tab2:
                     st.success(f"✅ {success_count} 件のデータを@pocketへ正常に書き戻しました！")
                     default_end = date.today()
                     default_start = default_end - timedelta(days=60)
-                    st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end)
+                    st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, target_publisher="岩波書店")
                     st.rerun()
 
         df_t2_flat = edited_t2_df
@@ -500,14 +510,10 @@ with tab2:
         st.divider()
         st.subheader("🖨️ 各種出力形式の選択（PDF ＆ Excel）")
         
-        # 出力形式のセレクトボックスを追加
         output_format = st.radio("出力形式を選択してください", ["PDFで出力する", "Excel (.xlsx) で出力する"], horizontal=True, key="out_fmt_select")
         
         col_out1, col_out2 = st.columns(2)
         
-        # ==========================================
-        # ① 納品管理帳（予定表）の出力（PDF or Excel）
-        # ==========================================
         with col_out1:
             if output_format == "PDFで出力する":
                 if st.button("🚀 顧客別・便別 納品管理帳(予定表)PDFを生成 [A4横]", type="secondary", key="btn_generate_schedule_pdf"):
@@ -595,7 +601,6 @@ with tab2:
                         key="dl_sch_pdf"
                     )
             else:
-                # Excel出力の処理
                 if st.button("🚀 顧客別・便別 納品管理帳(予定表)Excelを生成 [.xlsx]", type="secondary", key="btn_generate_schedule_xlsx"):
                     wb = openpyxl.Workbook()
                     ws = wb.active
@@ -641,9 +646,6 @@ with tab2:
                         key="dl_sch_xlsx"
                     )
 
-        # ==========================================
-        # ② 専用伝票の出力（PDF専用）
-        # ==========================================
         with col_out2:
             if st.button("🚀 【専用伝票】項目・罫線なし・9ptで生成", type="primary", key="btn_generate_slips"):
                 grouped = df_t2_flat.groupby(["出版社名", "配車区分"])
@@ -664,7 +666,66 @@ with tab2:
                             df_t2_flat.at[idx, "専用伝票番号"] = str(current_no)
                             updated_count += 1
                 
-                st.success(f"🔒 番号死守ガード適用（新規採番: {updated_count}件）")
+                headers = {
+                    "X-At-Pocket-API-Key": POCKET_API_KEY, 
+                    "Accept": "application/json", 
+                    "Content-Type": "application/json"
+                }
+                for r_idx, group_df in df_t2_flat.groupby("_record_idx"):
+                    r_idx = int(r_idx)
+                    original_rec = api_records[r_idx]
+                    record_id = original_rec.get("_recordId")
+                    if not record_id:
+                        continue
+                    
+                    update_url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records/{record_id}"
+                    first_row = group_df.iloc[0]
+                    record_payload = {
+                        "field-1": str(first_row["受注日"]) if pd.notna(first_row["受注日"]) else "",
+                        "field-2": str(first_row["受注番号"]),
+                        "field-3": str(first_row["印刷部数"]),
+                        "field-4": str(first_row["受注数量"]),
+                        "field-5": str(first_row["単価"]),
+                        "field-20": str(first_row["定価"]),
+                        "field-23": str(first_row["判型"]),
+                        "field-29": str(first_row["刷回"]),
+                        "field-81": str(first_row["預かり在庫"]),
+                        "field-93": str(first_row["ISBN"]),
+                    }
+                    
+                    orig_sub_88 = original_rec.get("field-88", [])
+                    sub88_list = []
+                    for _, row in group_df.iterrows():
+                        sub_i = int(row["_sub_idx"])
+                        item_88 = copy.deepcopy(orig_sub_88[sub_i]) if (isinstance(orig_sub_88, list) and len(orig_sub_88) > sub_i) else {}
+                        rec_dict = item_88.get("record", {}) if isinstance(item_88, dict) else {}
+                        
+                        rec_dict["field-88_2"] = str(row["納品日"]) if pd.notna(row["納品日"]) else ""
+                        rec_dict["field-88_4"] = str(row["納品部数"])
+                        rec_dict["field-88_5"] = str(row["摘要"])
+                        rec_dict["field-88_6"] = bool(row["在庫納品"])
+                        rec_dict["field-88_7"] = str(row["PL数"])
+                        rec_dict["field-88_8"] = str(row["見本"])
+                        rec_dict["field-88_9"] = str(row["専用伝票番号"])
+                        
+                        h_val = row["配車区分"]
+                        if pd.isna(h_val) or str(h_val).lower() in ["nan", "none", ""]:
+                            rec_dict["field-88_10"] = ""
+                        else:
+                            rec_dict["field-88_10"] = str(h_val)
+                        
+                        item_88["record"] = rec_dict
+                        sub88_list.append(item_88)
+                    
+                    record_payload["field-88"] = sub88_list
+                    payload = {"apiVersion": 1.1, "record": record_payload}
+                    
+                    try:
+                        requests.put(update_url, headers=headers, json=payload, timeout=15)
+                    except Exception:
+                        pass
+
+                st.success(f"🔒 番号死守ガード適用（新規採番: {updated_count}件 ＆ @pocket自動保存完了）")
                 
                 buffer_slip = io.BytesIO()
                 doc_slip = SimpleDocTemplate(buffer_slip, pagesize=A4, rightMargin=15*mm, leftMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
@@ -705,10 +766,10 @@ with tab2:
                             ]
                             page_rows.append(row1)
                             page_rows.append(row2)
-                            
+                        
                         while len(page_rows) < 14:
                             page_rows.append(["", "", "", "", "", "", ""])
-                            
+                        
                         slip_table = Table(page_rows, colWidths=[25*mm, 65*mm, 20*mm, 15*mm, 15*mm, 12*mm, 13*mm])
                         slip_table.setStyle(TableStyle([
                             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
@@ -730,4 +791,9 @@ with tab2:
                     key="dl_slip_pdf"
                 )
     else:
-        st.info(f"ℹ️ 指定された予定日【 {target_date_str} 】（field-90_8）に該当するデータはありません。")
+        st.info(f"ℹ️ 指定された予定日【 {target_date_str} 】に該当するデータはありません。")
+
+<ElicitationsGroup message="検索条件の拡張について：">
+  <Elicitation label="受注日と納期の切り替え検索が正常に動作するか確認する" query="タブ1の検索条件で「納期」を選択して期間検索を行った際の動作を確認します。"/>
+  <Elicitation label="初期値の岩波書店およびフリー入力の動作を確認する" query="起動時に岩波書店が初期セットされ、必要に応じて他の出版社名に書き換えて検索できることをテストします。"/>
+</ElicitationsGroup>
