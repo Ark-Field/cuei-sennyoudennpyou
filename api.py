@@ -96,7 +96,7 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, t
                     rec_body = {}
                 
                 merged_body = {**item, **rec_body}
-                merged_body["_recordId"] = item.get("Id", item.get("recordId", item.get("ResultId", rec_body.get("Id", ""))))
+                merged_body["_recordId"] = str(item.get("Id", item.get("recordId", item.get("ResultId", rec_body.get("Id", "")))))
                 parsed_records.append(merged_body)
             
             return parsed_records
@@ -148,7 +148,9 @@ def build_flat_data(records):
     flat = []
     for record_idx, r in enumerate(records):
         record_id = str(r.get("_recordId", ""))
-        pocket_url = f"{POCKET_BASE_URL}/apps/{APP_ID}/records/{record_id}" if record_id else ""
+        
+        # @pocketの正しいレコード詳細・編集画面用URL構成に修正
+        pocket_url = f"{POCKET_BASE_URL}/apps/{APP_ID}/records/{record_id}" if record_id and record_id != "None" else ""
         
         h_ord_no = str(r.get("field-2", ""))
         h_ord_date = parse_date_safe(r.get("field-1"))
@@ -351,7 +353,7 @@ with tab1:
             use_container_width=True,
             column_config={
                 "更新": st.column_config.CheckboxColumn("更新", required=True, help="チェックした行を@pocketに上書き保存"),
-                "@pocket詳細": st.column_config.LinkColumn("🔗 @pocket詳細", display_text="開く", help="クリックすると@pocketの該当レコードを開きます"),
+                "@pocket詳細": st.column_config.LinkColumn("🔗 @pocket詳細", display_text="📝 詳細を開く", help="クリックすると@pocketの該当レコードを開きます"),
                 "_record_idx": None, "_sub_idx": None, "_id_90": None, "_id_88": None,
                 "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
                 "受注日": st.column_config.DateColumn("受注日", format="YYYY-MM-DD", disabled=True),
@@ -443,7 +445,7 @@ with tab2:
             use_container_width=True,
             column_config={
                 "更新": st.column_config.CheckboxColumn("更新", required=True, help="この行の変更を@pocketに書き戻す"),
-                "@pocket詳細": st.column_config.LinkColumn("🔗 @pocket詳細", display_text="開く", help="クリックすると@pocketの該当レコードを開きます"),
+                "@pocket詳細": st.column_config.LinkColumn("🔗 @pocket詳細", display_text="📝 詳細を開く", help="クリックすると@pocketの該当レコードを開きます"),
                 "_record_idx": None, "_sub_idx": None, "_id_90": None, "_id_88": None,
                 "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
                 "受注日": st.column_config.DateColumn("受注日", format="YYYY-MM-DD", disabled=True),
