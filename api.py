@@ -57,7 +57,7 @@ else:
 APP_ID = 34  # @pocket対象アプリID
 
 # ==========================================
-# 3. APIデータ取得関数（動いていた当時のシンプルな仕組み）
+# 3. APIデータ取得関数
 # ==========================================
 def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, target_publisher=None, date_field="field-1"):
     url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records"
@@ -69,7 +69,6 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, t
         params["query"] = f'field-2 = "{target_order_no}"'
     else:
         query_parts = []
-        # メインフィールド（field-1やfield-52）の場合のみAPIクエリに含める（入品日はサブテーブルのためPython側でフィルタ）
         if start_date and end_date and date_field in ["field-1", "field-52"]:
             start_str = start_date.strftime("%Y-%m-%d")
             end_str = end_date.strftime("%Y-%m-%d")
@@ -167,7 +166,7 @@ def build_flat_data(records):
         h_tanka = str(r.get("field-5", ""))
         h_price = str(r.get("field-20", ""))
         h_shusu = str(r.get("field-28", ""))   # 刷数 (field-28)
-        h_shukai = str(r.get("field-96", "")) # 刷回 (field-96)
+        h_shukai = str(r.get("field-96", "")) # 刷回 (field-96) - 自動計算
         h_deposit = str(r.get("field-81", ""))
         
         if h_tanka.lower() in ["nan", "none", ""]:
@@ -223,7 +222,7 @@ def build_flat_data(records):
                 "PL数": str(rec_88.get("field-88_7", "")),
                 "見本": str(rec_88.get("field-88_8", "")),
                 "刷数": h_shusu,    # field-28
-                "刷回": h_shukai,  # field-96
+                "刷回": h_shukai,  # field-96 (自動計算)
                 "単価": h_tanka,
                 "摘要": str(rec_88.get("field-88_5", "")),
                 "在庫納品": bool(rec_88.get("field-88_6", False)),
@@ -235,7 +234,7 @@ def build_flat_data(records):
 df_flat = pd.DataFrame(build_flat_data(api_records))
 
 # ==========================================
-# 共通の保存処理ヘルパー関数（field-90 & field-88 を一括保存）
+# 共通の保存処理ヘルパー関数（自動計算のfield-96を除外）
 # ==========================================
 def save_group_to_pocket(group_df, original_rec, record_id):
     update_url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records/{record_id}"
@@ -250,7 +249,7 @@ def save_group_to_pocket(group_df, original_rec, record_id):
         "field-20": str(first_row["定価"]),
         "field-23": str(first_row["判型"]),
         "field-28": str(first_row["刷数"]),
-        "field-96": str(first_row["刷回"]),
+        # "field-96": str(first_row["刷回"]),  # ← ★自動計算フィールドのため保存ペイロードから除外
         "field-81": str(first_row["預かり在庫"]),
         "field-93": str(first_row["ISBN"]),
     }
@@ -341,7 +340,6 @@ with tab1:
         
         if st.button("🔄 検索実行", type="primary", key="btn_s1"):
             with st.spinner("@ポケットからデータを取得中..."):
-                # 入品日の場合はAPI側では日付クエリを外して出版社のみ等で取得し、後でPython側でフィルタ
                 api_date_field = target_date_field if target_date_field in ["field-1", "field-52"] else "field-1"
                 api_start = t1_start if target_date_field in ["field-1", "field-52"] else None
                 api_end = t1_end if target_date_field in ["field-1", "field-52"] else None
@@ -361,7 +359,6 @@ with tab1:
     current_start = st.session_state.get("t1_start_date", date.today())
     current_end = st.session_state.get("t1_end_date", date.today() + timedelta(days=14))
     
-    # 入品日（field-90_10）で絞り込む場合のフィルタリング処理
     if not df_flat.empty and current_target_field == "field-90_10":
         mask = (df_flat["入品日"] >= current_start) & (df_flat["入品日"] <= current_end)
         df_flat_filtered = df_flat[mask].copy()
@@ -396,7 +393,7 @@ with tab1:
                 "PL数": st.column_config.TextColumn("PL数"),
                 "見本": st.column_config.TextColumn("見本"),
                 "刷数": st.column_config.TextColumn("刷数(28)"),
-                "刷回": st.column_config.TextColumn("刷回(96)"),
+                "刷回": st.column_config.TextColumn("刷回(96)", disabled=True),  # 刷回は自動計算のため表示のみ
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "摘要": st.column_config.TextColumn("摘要"),
                 "在庫納品": st.column_config.CheckboxColumn("在庫納品", disabled=True),
@@ -488,7 +485,7 @@ with tab2:
                 "PL数": st.column_config.TextColumn("PL数"),
                 "見本": st.column_config.TextColumn("見本"),
                 "刷数": st.column_config.TextColumn("刷数(28)"),
-                "刷回": st.column_config.TextColumn("刷回(96)"),
+                "刷回": st.column_config.TextColumn("刷回(96)", disabled=True),
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
                 "摘要": st.column_config.TextColumn("摘要"),
