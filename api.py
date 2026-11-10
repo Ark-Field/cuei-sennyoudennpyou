@@ -9,7 +9,7 @@ import copy
 import openpyxl
 
 # ReportLab関連（PDF出力用）
-from reportlab.lib.pagesizes import landscape
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
@@ -652,7 +652,15 @@ with tab2:
                     )
 
         with col_out2:
-            if st.button("🚀 【専用伝票】寸法・配置完全準拠で生成", type="primary", key="btn_generate_slips"):
+            st.markdown("##### 🖨️ 専用伝票出力モード選択")
+            print_mode = st.radio(
+                "印刷環境を選択してください", 
+                ["【本番用】専用伝票サイズ（17cm×12cm）", "【テスト用】A4縦に実寸大＋外枠でテスト印刷"], 
+                horizontal=False, 
+                key="slip_print_mode"
+            )
+            
+            if st.button("🚀 【専用伝票】PDFを生成する", type="primary", key="btn_generate_slips"):
                 grouped = df_t2_flat.groupby(["出版社名", "配車区分"])
                 
                 updated_count = 0
@@ -733,16 +741,26 @@ with tab2:
 
                 st.success(f"🔒 番号死守ガード適用（新規採番: {updated_count}件 ＆ @pocket自動保存完了）")
                 
-                # ★ 専用伝票サイズ: 幅17cm × 高さ12cm
-                # 下へ30mm、右へ15mmオフセットを反映 (leftMargin: 5mm + 15mm = 20mm, topMargin: 3.8mm + 30mm = 33.8mm)
-                slip_page_size = (170 * mm, 120 * mm)
+                # モードに応じたページサイズとマージンの切り替え
+                is_test_mode = "テスト用" in print_mode
+                if is_test_mode:
+                    # A4縦サイズ (210mm × 297mm)、指定のオフセット（右15mm、下30mm）をマージンとして反映
+                    slip_page_size = A4
+                    left_m = 20 * mm   # 元5mm + 右15mm
+                    top_m = 33.8 * mm  # 元3.8mm + 下30mm
+                else:
+                    # 本番用専用伝票サイズ (170mm × 120mm)、指定のオフセットを反映
+                    slip_page_size = (170 * mm, 120 * mm)
+                    left_m = 20 * mm
+                    top_m = 33.8 * mm
+                
                 buffer_slip = io.BytesIO()
                 doc_slip = SimpleDocTemplate(
                     buffer_slip, 
                     pagesize=slip_page_size, 
-                    leftMargin=20 * mm,   # 右へ15mm調整 (元5mm + 15mm)
+                    leftMargin=left_m,
                     rightMargin=5 * mm, 
-                    topMargin=33.8 * mm,  # 下へ30mm調整 (元3.8mm + 30mm)
+                    topMargin=top_m,
                     bottomMargin=0 * mm
                 )
                 story_slip = []
@@ -807,13 +825,20 @@ with tab2:
                         
                         # 1行の高さ 10mm × 6行 ＝ 60mm
                         slip_table = Table(page_rows, colWidths=col_widths, rowHeights=[10 * mm] * 6)
-                        slip_table.setStyle(TableStyle([
+                        
+                        # テストモードのときは伝票の外枠（17cm×12cm）を描画して位置合わせを確認しやすくする
+                        table_style_list = [
                             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
                             ('TOPPADDING', (0,0), (-1,-1), 1),
                             ('BOTTOMPADDING', (0,0), (-1,-1), 1),
                             ('LEFTPADDING', (0,0), (-1,-1), 2),
                             ('RIGHTPADDING', (0,0), (-1,-1), 2),
-                        ]))
+                        ]
+                        if is_test_mode:
+                            table_style_list.append(('BOX', (0,0), (-1,-1), 1, colors.red)) # 赤枠で伝票サイズを表示
+                            table_style_list.append(('INNERGRID', (0,0), (-1,-1), 0.25, colors.lightgrey))
+                        
+                        slip_table.setStyle(TableStyle(table_style_list))
                         
                         story_slip.append(slip_table)
                         story_slip.append(PageBreak())
@@ -821,8 +846,9 @@ with tab2:
                 doc_slip.build(story_slip)
                 buffer_slip.seek(0)
                 
+                label_name = "📥 専用伝票PDFをダウンロード [A4テスト印刷モード]" if is_test_mode else "📥 専用伝票PDFをダウンロード [専用伝票サイズ]"
                 st.download_button(
-                    label="📥 専用伝票PDFをダウンロード [下30mm/右15mm調整版]",
+                    label=label_name,
                     data=buffer_slip,
                     file_name=f"納品専用伝票_{target_date_str}.pdf",
                     mime="application/pdf",
