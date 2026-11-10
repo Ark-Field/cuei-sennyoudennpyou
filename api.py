@@ -733,15 +733,16 @@ with tab2:
 
                 st.success(f"🔒 番号死守ガード適用（新規採番: {updated_count}件 ＆ @pocket自動保存完了）")
                 
-                # ★ 専用伝票サイズ: 幅17cm × 高さ12cm, 上部マージン3.8mm、左右余白5mmを正しく設定
+                # ★ 専用伝票サイズ: 幅17cm × 高さ12cm
+                # 下へ30mm、右へ15mmオフセットを反映 (leftMargin: 5mm + 15mm = 20mm, topMargin: 3.8mm + 30mm = 33.8mm)
                 slip_page_size = (170 * mm, 120 * mm)
                 buffer_slip = io.BytesIO()
                 doc_slip = SimpleDocTemplate(
                     buffer_slip, 
                     pagesize=slip_page_size, 
-                    leftMargin=5 * mm,    # 左右5mm余白
+                    leftMargin=20 * mm,   # 右へ15mm調整 (元5mm + 15mm)
                     rightMargin=5 * mm, 
-                    topMargin=3.8 * mm,   # 上から3.8mmから開始
+                    topMargin=33.8 * mm,  # 下へ30mm調整 (元3.8mm + 30mm)
                     bottomMargin=0 * mm
                 )
                 story_slip = []
@@ -821,7 +822,7 @@ with tab2:
                 buffer_slip.seek(0)
                 
                 st.download_button(
-                    label="📥 専用伝票PDFをダウンロード [寸法・配置完全準拠]",
+                    label="📥 専用伝票PDFをダウンロード [下30mm/右15mm調整版]",
                     data=buffer_slip,
                     file_name=f"納品専用伝票_{target_date_str}.pdf",
                     mime="application/pdf",
