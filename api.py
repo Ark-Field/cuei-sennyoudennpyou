@@ -159,11 +159,14 @@ def build_flat_data(records):
         h_qty = str(r.get("field-4", ""))
         h_tanka = str(r.get("field-5", ""))
         h_price = str(r.get("field-20", ""))
-        h_shukai = str(r.get("field-29", ""))
+        h_shusu = str(r.get("field-28", ""))   # 刷数 (field-28)
+        h_shukai = str(r.get("field-29", "")) # 刷回 (field-29)
         h_deposit = str(r.get("field-81", ""))
         
         if h_tanka.lower() in ["nan", "none", ""]:
             h_tanka = "0"
+        if h_shusu.lower() in ["nan", "none", ""]:
+            h_shusu = ""
         if h_shukai.lower() in ["nan", "none", ""]:
             h_shukai = ""
 
@@ -210,7 +213,8 @@ def build_flat_data(records):
                 "納品部数": str(rec_88.get("field-88_4", "")),
                 "PL数": str(rec_88.get("field-88_7", "")),
                 "見本": str(rec_88.get("field-88_8", "")),
-                "刷回": h_shukai,
+                "刷数": h_shusu,    # field-28
+                "刷回": h_shukai,  # field-29
                 "単価": h_tanka,
                 "摘要": str(rec_88.get("field-88_5", "")),
                 "在庫納品": bool(rec_88.get("field-88_6", False)),
@@ -276,7 +280,8 @@ with tab1:
                 "納品部数": st.column_config.TextColumn("納品部数"),
                 "PL数": st.column_config.TextColumn("PL数"),
                 "見本": st.column_config.TextColumn("見本"),
-                "刷回": st.column_config.TextColumn("刷回(29)"),
+                "刷数": st.column_config.TextColumn("刷数(28)"),   # field-28 編集可能
+                "刷回": st.column_config.TextColumn("刷回(29)"),   # field-29
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "摘要": st.column_config.TextColumn("摘要"),
                 "在庫納品": st.column_config.CheckboxColumn("在庫納品"),
@@ -315,7 +320,8 @@ with tab1:
                         "field-5": str(first_row["単価"]),
                         "field-20": str(first_row["定価"]),
                         "field-23": str(first_row["判型"]),
-                        "field-29": str(first_row["刷回"]),
+                        "field-28": str(first_row["刷数"]),  # 刷数 field-28
+                        "field-29": str(first_row["刷回"]),  # 刷回 field-29
                         "field-81": str(first_row["預かり在庫"]),
                         "field-93": str(first_row["ISBN"]),
                     }
@@ -416,7 +422,8 @@ with tab2:
                 "納品部数": st.column_config.TextColumn("納品部数"),
                 "PL数": st.column_config.TextColumn("PL数"),
                 "見本": st.column_config.TextColumn("見本"),
-                "刷回": st.column_config.TextColumn("刷回(29)"),
+                "刷数": st.column_config.TextColumn("刷数(28)"),   # field-28 編集可能
+                "刷回": st.column_config.TextColumn("刷回(29)"),   # field-29
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
                 "摘要": st.column_config.TextColumn("摘要"),
@@ -454,7 +461,8 @@ with tab2:
                         "field-5": str(first_row["単価"]),
                         "field-20": str(first_row["定価"]),
                         "field-23": str(first_row["判型"]),
-                        "field-29": str(first_row["刷回"]),
+                        "field-28": str(first_row["刷数"]),  # 刷数 field-28
+                        "field-29": str(first_row["刷回"]),  # 刷回 field-29
                         "field-81": str(first_row["預かり在庫"]),
                         "field-93": str(first_row["ISBN"]),
                     }
@@ -685,7 +693,8 @@ with tab2:
                         "field-5": str(first_row["単価"]),
                         "field-20": str(first_row["定価"]),
                         "field-23": str(first_row["判型"]),
-                        "field-29": str(first_row["刷回"]),
+                        "field-28": str(first_row["刷数"]),  # 刷数 field-28
+                        "field-29": str(first_row["刷回"]),  # 刷回 field-29
                         "field-81": str(first_row["預かり在庫"]),
                         "field-93": str(first_row["ISBN"]),
                     }
@@ -724,14 +733,13 @@ with tab2:
 
                 st.success(f"🔒 番号死守ガード適用（新規採番: {updated_count}件 ＆ @pocket自動保存完了）")
                 
-                # ★ ご指定の寸法に基づいた専用伝票PDF生成設定
-                # 伝票サイズ: 幅17cm × 高さ12cm, 上部マージン3.8mm
+                # ★ 専用伝票サイズ: 幅17cm × 高さ12cm, 上部マージン3.8mm、左右余白5mmを正しく設定
                 slip_page_size = (170 * mm, 120 * mm)
                 buffer_slip = io.BytesIO()
                 doc_slip = SimpleDocTemplate(
                     buffer_slip, 
                     pagesize=slip_page_size, 
-                    leftMargin=5 * mm,    # 左右5mm余白（左側余白5mm ＋ 列幅7項目で計160mm + 左右余白で170mmに収める）
+                    leftMargin=5 * mm,    # 左右5mm余白
                     rightMargin=5 * mm, 
                     topMargin=3.8 * mm,   # 上から3.8mmから開始
                     bottomMargin=0 * mm
@@ -739,7 +747,6 @@ with tab2:
                 story_slip = []
                 
                 styles = getSampleStyleSheet()
-                # 1行の高さが10mmに収まるよう、フォントサイズ7.5pt / leading 9.5ptに調整
                 slip_cell_style = ParagraphStyle(
                     'SlipCellCustom', 
                     parent=styles['Normal'], 
@@ -762,19 +769,17 @@ with tab2:
                         
                         page_rows = []
                         for item in chunk:
-                            # 1段目（ISBN と 判型を2段表示）
                             isbn_val = item.get('ISBN', '')
                             format_val = item.get('判型', '')
                             col1_text = f"{isbn_val}<br/>{format_val}"
                             
-                            # 書名
-                            title_val = item.get('书名', '') or item.get('書名', '')
+                            title_val = item.get('書名', '')
                             
                             row_cells = [
                                 Paragraph(col1_text, slip_cell_style),                  # 19mm: ISBNと判型2段
                                 Paragraph(str(title_val), slip_cell_style),             # 70mm: 書名
                                 Paragraph(str(item.get('定価', '')), slip_cell_right),  # 15mm: 定価
-                                Paragraph(str(item.get('刷回', '')), slip_cell_right),  # 11mm: 刷数
+                                Paragraph(str(item.get('刷数', '')), slip_cell_right),  # 11mm: 刷数 (field-28)
                                 Paragraph("", slip_cell_style),                         # 15mm: 空白
                                 Paragraph(str(item.get('納品部数', '')), slip_cell_right),# 15mm: 納品部数
                                 Paragraph(str(item.get('PL数', '')), slip_cell_right),  # 8mm: PL数
@@ -783,17 +788,15 @@ with tab2:
                             ]
                             page_rows.append(row_cells)
                         
-                        # 6行に満たない場合は空行で埋める
                         while len(page_rows) < 6:
                             empty_row = [Paragraph("", slip_cell_style) for _ in range(9)]
                             page_rows.append(empty_row)
                         
-                        # 列幅の割り当て合計 = 19 + 70 + 15 + 11 + 15 + 15 + 8 + 15 + 7 = 160mm （左右5mm余白と合わせて170mm）
                         col_widths = [
                             19 * mm,  # ISBN / 判型 (2段)
                             70 * mm,  # 書名
                             15 * mm,  # 定価
-                            11 * mm,  # 刷数
+                            11 * mm,  # 刷数 (field-28)
                             15 * mm,  # 空白
                             15 * mm,  # 納品部数
                             8 * mm,   # PL数
@@ -807,8 +810,8 @@ with tab2:
                             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
                             ('TOPPADDING', (0,0), (-1,-1), 1),
                             ('BOTTOMPADDING', (0,0), (-1,-1), 1),
-                            ('LEFTPADDING', (0,0), (-1,-1), 1),
-                            ('RIGHTPADDING', (0,0), (-1,-1), 1),
+                            ('LEFTPADDING', (0,0), (-1,-1), 2),
+                            ('RIGHTPADDING', (0,0), (-1,-1), 2),
                         ]))
                         
                         story_slip.append(slip_table)
