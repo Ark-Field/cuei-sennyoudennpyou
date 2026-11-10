@@ -72,7 +72,6 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, t
         if start_date and end_date:
             start_str = start_date.strftime("%Y-%m-%d")
             end_str = end_date.strftime("%Y-%m-%d")
-            # date_field（field-1: 受注日 または field-52: 納期）で期間絞り込み
             query_parts.append(f'{date_field} >= "{start_str}" and {date_field} <= "{end_str}"')
         if target_publisher:
             query_parts.append(f'field-8 like "{target_publisher}"')
@@ -150,7 +149,7 @@ def build_flat_data(records):
     for record_idx, r in enumerate(records):
         h_ord_no = str(r.get("field-2", ""))
         h_ord_date = parse_date_safe(r.get("field-1"))
-        h_due_date = parse_date_safe(r.get("field-52")) # 納期フィールド
+        h_due_date = parse_date_safe(r.get("field-52"))
         h_pub = str(r.get("field-8", ""))
         h_title = str(r.get("field-13", ""))
         h_format = str(r.get("field-23", ""))
@@ -229,7 +228,6 @@ with tab1:
     st.header("📋 受注一覧表 ＆ データ更新エディタ")
     
     with st.expander("🔍 検索条件の変更・絞り込み", expanded=True):
-        # 検索基準の切り替え（受注日 or 納期）
         search_date_type = st.radio("📅 期間検索の基準を選択", ["受注日（field-1）", "納期（field-52）"], horizontal=True)
         target_date_field = "field-1" if "受注日" in search_date_type else "field-52"
 
@@ -241,7 +239,6 @@ with tab1:
         with col_s2:
             t1_end = st.date_input("期間（終了）", value=default_end, key="t1_e")
         with col_s3:
-            # 初期値に「岩波書店」をセットしつつ、フリー入力で他の出版社にも変更可能
             publisher_input = st.text_input("📖 出版社名で絞り込み", value="岩波書店", key="pub_ord")
         
         if st.button("🔄 検索実行", type="primary", key="btn_s1"):
@@ -431,7 +428,7 @@ with tab2:
         if st.button("💾 タブ2の変更内容を@pocketに書き戻す", type="primary", key="btn_save_t2"):
             checked_t2 = edited_t2_df[edited_t2_df["更新"] == True]
             if checked_t2.empty:
-                st.warning("⚠️ 書き戻す行の「更新」チェックボックスにチェックを入れてください。")
+                st.warning("⚠️ 書き戻す行の配車区分または更新チェックボックスにチェックを入れてください。")
             else:
                 headers = {
                     "X-At-Pocket-API-Key": POCKET_API_KEY, 
@@ -792,8 +789,3 @@ with tab2:
                 )
     else:
         st.info(f"ℹ️ 指定された予定日【 {target_date_str} 】に該当するデータはありません。")
-
-<ElicitationsGroup message="検索条件の拡張について：">
-  <Elicitation label="受注日と納期の切り替え検索が正常に動作するか確認する" query="タブ1の検索条件で「納期」を選択して期間検索を行った際の動作を確認します。"/>
-  <Elicitation label="初期値の岩波書店およびフリー入力の動作を確認する" query="起動時に岩波書店が初期セットされ、必要に応じて他の出版社名に書き換えて検索できることをテストします。"/>
-</ElicitationsGroup>
