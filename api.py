@@ -69,7 +69,8 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, t
         params["query"] = f'field-2 = "{target_order_no}"'
     else:
         query_parts = []
-        if start_date and end_date:
+        # サブテーブルのフィールド（field-90_10など）はAPIクエリに直接使えないため、メインフィールド(field-1, field-52)のみAPIクエリに含める
+        if start_date and end_date and date_field in ["field-1", "field-52"]:
             start_str = start_date.strftime("%Y-%m-%d")
             end_str = end_date.strftime("%Y-%m-%d")
             query_parts.append(f'{date_field} >= "{start_str}" and {date_field} <= "{end_str}"')
@@ -163,7 +164,7 @@ def build_flat_data(records):
         h_tanka = str(r.get("field-5", ""))
         h_price = str(r.get("field-20", ""))
         h_shusu = str(r.get("field-28", ""))   # 刷数 (field-28)
-        h_shukai = str(r.get("field-29", "")) # 刷回 (field-29)
+        h_shukai = str(r.get("field-96", "")) # 刷回 (field-96)
         h_deposit = str(r.get("field-81", ""))
         
         if h_tanka.lower() in ["nan", "none", ""]:
@@ -213,12 +214,13 @@ def build_flat_data(records):
                 "定価": h_price,
                 "預かり在庫": h_deposit,
                 "予定日": parse_date_safe(rec_90.get("field-90_8")),
+                "入品日": parse_date_safe(rec_90.get("field-90_10")),
                 "納品日": parse_date_safe(rec_88.get("field-88_2")),
                 "納品部数": str(rec_88.get("field-88_4", "")),
                 "PL数": str(rec_88.get("field-88_7", "")),
                 "見本": str(rec_88.get("field-88_8", "")),
                 "刷数": h_shusu,    # field-28
-                "刷回": h_shukai,  # field-29
+                "刷回": h_shukai,  # field-96
                 "単価": h_tanka,
                 "摘要": str(rec_88.get("field-88_5", "")),
                 "在庫納品": bool(rec_88.get("field-88_6", False)),
@@ -245,12 +247,12 @@ def save_group_to_pocket(group_df, original_rec, record_id):
         "field-20": str(first_row["定価"]),
         "field-23": str(first_row["判型"]),
         "field-28": str(first_row["刷数"]),
-        "field-29": str(first_row["刷回"]),
+        "field-96": str(first_row["刷回"]),
         "field-81": str(first_row["預かり在庫"]),
         "field-93": str(first_row["ISBN"]),
     }
     
-    # 予定日（field-90）のサブテーブル構築
+    # 予定日・入品日（field-90）のサブテーブル構築
     orig_sub_90 = original_rec.get("field-90", [])
     sub90_list = []
     for _, row in group_df.iterrows():
@@ -259,6 +261,7 @@ def save_group_to_pocket(group_df, original_rec, record_id):
         rec_90_dict = item_90.get("record", {}) if isinstance(item_90, dict) else {}
         
         rec_90_dict["field-90_8"] = str(row["予定日"]) if pd.notna(row["予定日"]) else ""
+        rec_90_dict["field-90_10"] = str(row["入品日"]) if pd.notna(row["入品日"]) else ""
         item_90["record"] = rec_90_dict
         sub90_list.append(item_90)
     record_payload["field-90"] = sub90_list
@@ -310,8 +313,18 @@ with tab1:
     st.header("📋 受注一覧表 ＆ データ更新エディタ")
     
     with st.expander("🔍 検索条件の変更・絞り込み", expanded=True):
-        search_date_type = st.radio("📅 期間検索の基準を選択", ["受注日（field-1）", "納期（field-52）"], horizontal=True)
-        target_date_field = "field-1" if "受注日" in search_date_type else "field-52"
+        search_date_type = st.radio(
+            "📅 期間検索の基準を選択", 
+            ["受注日（field-1）", "納期（field-52）", "入品日（field-90_10）"], 
+            horizontal=True
+        )
+        
+        if "受注日" in search_date_type:
+            target_date_field = "field-1"
+        elif "納期" in search_date_type:
+            target_date_field = "field-52"
+        else:
+            target_date_field = "field-90_10"
 
         col_s1, col_s2, col_s3 = st.columns(3)
         with col_s1:
@@ -325,17 +338,39 @@ with tab1:
         
         if st.button("🔄 検索実行", type="primary", key="btn_s1"):
             with st.spinner("@ポケットからデータを取得中..."):
+                # 入品日の場合はAPI側では日付クエリを外して広めに取得し、後でPython側でフィルタリングする
+                api_date_field = target_date_field if target_date_field in ["field-1", "field-52"] else "field-1"
+                api_start = t1_start if target_date_field in ["field-1", "field-52"] else None
+                api_end = t1_end if target_date_field in ["field-1", "field-52"] else None
+                
                 st.session_state["api_records"] = fetch_pocket_records(
-                    start_date=t1_start, 
-                    end_date=t1_end, 
+                    start_date=api_start, 
+                    end_date=api_end, 
                     target_publisher=publisher_input if publisher_input else None,
-                    date_field=target_date_field
+                    date_field=api_date_field
                 )
+                
+                # セッションステートに検索条件も保持
+                st.session_state["t1_target_date_field"] = target_date_field
+                st.session_state["t1_start_date"] = t1_start
+                st.session_state["t1_end_date"] = t1_end
             st.rerun()
 
-    if not df_flat.empty:
+    # 入品日（field-90_10）で絞り込む場合のフィルタリング処理
+    current_target_field = st.session_state.get("t1_target_date_field", "field-1")
+    current_start = st.session_state.get("t1_start_date", default_start_date)
+    current_end = st.session_state.get("t1_end_date", default_end_date)
+    
+    if not df_flat.empty and current_target_field == "field-90_10":
+        # 入品日が指定期間内の行を抽出（入品日が空のものは除外するか含めるか：ここでは期間内のみ）
+        mask = (df_flat["入品日"] >= current_start) & (df_flat["入品日"] <= current_end)
+        df_flat_filtered = df_flat[mask].copy()
+    else:
+        df_flat_filtered = df_flat
+
+    if not df_flat_filtered.empty:
         edited_flat_df = st.data_editor(
-            df_flat,
+            df_flat_filtered,
             num_rows="fixed",
             key="grid_flat_main",
             use_container_width=True,
@@ -355,15 +390,16 @@ with tab1:
                 "定価": st.column_config.TextColumn("定価", disabled=True),
                 "預かり在庫": st.column_config.TextColumn("預かり在庫(81)"),
                 "予定日": st.column_config.DateColumn("予定日(90_8)", format="YYYY-MM-DD"),
+                "入品日": st.column_config.DateColumn("入品日(90_10)", format="YYYY-MM-DD"),
                 "納品日": st.column_config.DateColumn("納品日", format="YYYY-MM-DD"),
                 "納品部数": st.column_config.TextColumn("納品部数"),
                 "PL数": st.column_config.TextColumn("PL数"),
                 "見本": st.column_config.TextColumn("見本"),
                 "刷数": st.column_config.TextColumn("刷数(28)"),
-                "刷回": st.column_config.TextColumn("刷回(29)"),
+                "刷回": st.column_config.TextColumn("刷回(96)"),
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "摘要": st.column_config.TextColumn("摘要"),
-                "在庫納品": st.column_config.CheckboxColumn("在庫納品"),
+                "在庫納品": st.column_config.CheckboxColumn("在庫納品", disabled=True),
                 "専用伝票番号": st.column_config.TextColumn("伝票番号(88_9)"),
                 "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
             }
@@ -446,16 +482,17 @@ with tab2:
                 "定価": st.column_config.TextColumn("定価", disabled=True),
                 "預かり在庫": st.column_config.TextColumn("預かり在庫"),
                 "予定日": st.column_config.DateColumn("予定日", format="YYYY-MM-DD"),
+                "入品日": st.column_config.DateColumn("入品日", format="YYYY-MM-DD"),
                 "納品日": st.column_config.DateColumn("納品日", format="YYYY-MM-DD"),
                 "納品部数": st.column_config.TextColumn("納品部数"),
                 "PL数": st.column_config.TextColumn("PL数"),
                 "見本": st.column_config.TextColumn("見本"),
                 "刷数": st.column_config.TextColumn("刷数(28)"),
-                "刷回": st.column_config.TextColumn("刷回(29)"),
+                "刷回": st.column_config.TextColumn("刷回(96)"),
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
                 "摘要": st.column_config.TextColumn("摘要"),
-                "在庫納品": st.column_config.CheckboxColumn("在庫納品"),
+                "在庫納品": st.column_config.CheckboxColumn("在庫納品", disabled=True),
                 "専用伝票番号": st.column_config.TextColumn("伝票番号(88_9)"),
             }
         )
@@ -587,7 +624,7 @@ with tab2:
                     ws = wb.active
                     ws.title = "納品管理帳"
                     
-                    headers = ["出版社名", "配車便", "判型", "書名", "ISBN", "刷回", "定価", "印刷部数", "納品部数", "見本", "総部数", "単価", "預り在庫", "売上(納品金額)", "予定日"]
+                    headers = ["出版社名", "配車便", "判型", "書名", "ISBN", "刷回", "定価", "印刷部数", "納品部数", "見本", "総部数", "単価", "預り在庫", "売上(納品金額)", "予定日", "入品日"]
                     ws.append(headers)
                     
                     for _, row in df_t2_flat.iterrows():
@@ -612,7 +649,8 @@ with tab2:
                             tanka,
                             safe_float(row.get("預かり在庫", 0)),
                             uriage,
-                            target_date_str
+                            target_date_str,
+                            str(row.get("入品日", ""))
                         ])
                     
                     excel_buffer = io.BytesIO()
