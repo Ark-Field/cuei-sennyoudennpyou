@@ -744,23 +744,19 @@ with tab2:
                 # モードに応じたページサイズとマージンの切り替え
                 is_test_mode = "テスト用" in print_mode
                 if is_test_mode:
-                    # A4縦サイズ (210mm × 297mm)、指定のオフセット（右15mm、下30mm）をマージンとして反映
                     slip_page_size = A4
-                    left_m = 20 * mm   # 元5mm + 右15mm
-                    top_m = 33.8 * mm  # 元3.8mm + 下30mm
                 else:
-                    # 本番用専用伝票サイズ (170mm × 120mm)、指定のオフセットを反映
                     slip_page_size = (170 * mm, 120 * mm)
-                    left_m = 20 * mm
-                    top_m = 33.8 * mm
                 
-                buffer_slip = io.BytesIO()
+                # ご指定の微調整（左へ12mm、上へ2mm）を反映
+                # leftMargin: 20mm - 12mm = 8mm
+                # topMargin: 33.8mm - 2mm = 31.8mm
                 doc_slip = SimpleDocTemplate(
-                    buffer_slip, 
+                    buffer_slip := io.BytesIO(), 
                     pagesize=slip_page_size, 
-                    leftMargin=left_m,
+                    leftMargin=8 * mm,    # 左へ12mm調整 (20mm - 12mm)
                     rightMargin=5 * mm, 
-                    topMargin=top_m,
+                    topMargin=31.8 * mm,  # 上へ2mm調整 (33.8mm - 2mm)
                     bottomMargin=0 * mm
                 )
                 story_slip = []
@@ -826,7 +822,6 @@ with tab2:
                         # 1行の高さ 10mm × 6行 ＝ 60mm
                         slip_table = Table(page_rows, colWidths=col_widths, rowHeights=[10 * mm] * 6)
                         
-                        # テストモードのときは伝票の外枠（17cm×12cm）を描画して位置合わせを確認しやすくする
                         table_style_list = [
                             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
                             ('TOPPADDING', (0,0), (-1,-1), 1),
