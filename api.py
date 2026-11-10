@@ -57,19 +57,22 @@ else:
 APP_ID = 34  # @pocket対象アプリID
 
 # ==========================================
-# 3. APIデータ取得関数
+# 3. APIデータ取得関数（件数制限＆新着順ソートで1000件の壁を回避）
 # ==========================================
 def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, target_publisher=None, date_field="field-1"):
     url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records"
     headers = {"X-At-Pocket-API-Key": POCKET_API_KEY, "Accept": "application/json"}
     
-    params = {}
+    # 1000件の壁・タイムアウトを防ぐため、最新データから優先取得＆上限を設定
+    params = {
+        "limit": 500,
+        "sort": f"-{date_field}" if date_field in ["field-1", "field-52"] else "-field-1"
+    }
     
     if target_order_no:
         params["query"] = f'field-2 = "{target_order_no}"'
     else:
         query_parts = []
-        # サブテーブルのフィールド（field-90_10など）はAPIクエリに直接使えないため、メインフィールド(field-1, field-52)のみAPIクエリに含める
         if start_date and end_date and date_field in ["field-1", "field-52"]:
             start_str = start_date.strftime("%Y-%m-%d")
             end_str = end_date.strftime("%Y-%m-%d")
@@ -82,7 +85,8 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, t
     try:
         response = requests.get(url, headers=headers, params=params, timeout=20)
         if response.status_code != 200 and "query" in params:
-            response = requests.get(url, headers=headers, timeout=20)
+            fallback_params = {"limit": 500, "sort": "-field-1"}
+            response = requests.get(url, headers=headers, params=fallback_params, timeout=20)
         
         if response.status_code == 200:
             result = response.json()
@@ -131,6 +135,9 @@ if "api_records" not in st.session_state:
     default_start = date.today()
     default_end = default_start + timedelta(days=14)
     st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, target_publisher="岩波書店", date_field="field-1")
+    st.session_state["t1_target_date_field"] = "field-1"
+    st.session_state["t1_start_date"] = default_start
+    st.session_state["t1_end_date"] = default_end
 
 api_records = st.session_state.get("api_records", [])
 
@@ -338,7 +345,6 @@ with tab1:
         
         if st.button("🔄 検索実行", type="primary", key="btn_s1"):
             with st.spinner("@ポケットからデータを取得中..."):
-                # 入品日の場合はAPI側では日付クエリを外して広めに取得し、後でPython側でフィルタリングする
                 api_date_field = target_date_field if target_date_field in ["field-1", "field-52"] else "field-1"
                 api_start = t1_start if target_date_field in ["field-1", "field-52"] else None
                 api_end = t1_end if target_date_field in ["field-1", "field-52"] else None
@@ -349,20 +355,16 @@ with tab1:
                     target_publisher=publisher_input if publisher_input else None,
                     date_field=api_date_field
                 )
-                
-                # セッションステートに検索条件も保持
                 st.session_state["t1_target_date_field"] = target_date_field
                 st.session_state["t1_start_date"] = t1_start
                 st.session_state["t1_end_date"] = t1_end
             st.rerun()
 
-    # 入品日（field-90_10）で絞り込む場合のフィルタリング処理
     current_target_field = st.session_state.get("t1_target_date_field", "field-1")
-    current_start = st.session_state.get("t1_start_date", default_start_date)
-    current_end = st.session_state.get("t1_end_date", default_end_date)
+    current_start = st.session_state.get("t1_start_date", date.today())
+    current_end = st.session_state.get("t1_end_date", date.today() + timedelta(days=14))
     
     if not df_flat.empty and current_target_field == "field-90_10":
-        # 入品日が指定期間内の行を抽出（入品日が空のものは除外するか含めるか：ここでは期間内のみ）
         mask = (df_flat["入品日"] >= current_start) & (df_flat["入品日"] <= current_end)
         df_flat_filtered = df_flat[mask].copy()
     else:
