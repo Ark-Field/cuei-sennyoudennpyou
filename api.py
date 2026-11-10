@@ -57,7 +57,7 @@ else:
 APP_ID = 34  # @pocket対象アプリID
 
 # ==========================================
-# 3. APIデータ取得関数
+# 3. APIデータ取得関数（動いていた当時のシンプルな仕組み）
 # ==========================================
 def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, target_publisher=None, date_field="field-1"):
     url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records"
@@ -69,7 +69,8 @@ def fetch_pocket_records(start_date=None, end_date=None, target_order_no=None, t
         params["query"] = f'field-2 = "{target_order_no}"'
     else:
         query_parts = []
-        if start_date and end_date:
+        # メインフィールド（field-1やfield-52）の場合のみAPIクエリに含める（入品日はサブテーブルのためPython側でフィルタ）
+        if start_date and end_date and date_field in ["field-1", "field-52"]:
             start_str = start_date.strftime("%Y-%m-%d")
             end_str = end_date.strftime("%Y-%m-%d")
             query_parts.append(f'{date_field} >= "{start_str}" and {date_field} <= "{end_str}"')
@@ -130,6 +131,9 @@ if "api_records" not in st.session_state:
     default_start = date.today()
     default_end = default_start + timedelta(days=14)
     st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, target_publisher="岩波書店", date_field="field-1")
+    st.session_state["t1_target_date_field"] = "field-1"
+    st.session_state["t1_start_date"] = default_start
+    st.session_state["t1_end_date"] = default_end
 
 api_records = st.session_state.get("api_records", [])
 
@@ -276,7 +280,7 @@ def save_group_to_pocket(group_df, original_rec, record_id):
         rec_dict["field-88_2"] = str(row["納品日"]) if pd.notna(row["納品日"]) else ""
         rec_dict["field-88_4"] = str(row["納品部数"])
         rec_dict["field-88_5"] = str(row["摘要"])
-        rec_dict["field-88_6"] = bool(row["在庫納品"])  # 画面表示は編集不可ですが元の値を維持して保持
+        rec_dict["field-88_6"] = bool(row["在庫納品"])
         rec_dict["field-88_7"] = str(row["PL数"])
         rec_dict["field-88_8"] = str(row["見本"])
         rec_dict["field-88_9"] = str(row["専用伝票番号"])
@@ -312,8 +316,18 @@ with tab1:
     st.header("📋 受注一覧表 ＆ データ更新エディタ")
     
     with st.expander("🔍 検索条件の変更・絞り込み", expanded=True):
-        search_date_type = st.radio("📅 期間検索の基準を選択", ["受注日（field-1）", "納期（field-52）"], horizontal=True)
-        target_date_field = "field-1" if "受注日" in search_date_type else "field-52"
+        search_date_type = st.radio(
+            "📅 期間検索の基準を選択", 
+            ["受注日（field-1）", "納期（field-52）", "入品日（field-90_10）"], 
+            horizontal=True
+        )
+        
+        if "受注日" in search_date_type:
+            target_date_field = "field-1"
+        elif "納期" in search_date_type:
+            target_date_field = "field-52"
+        else:
+            target_date_field = "field-90_10"
 
         col_s1, col_s2, col_s3 = st.columns(3)
         with col_s1:
@@ -327,17 +341,36 @@ with tab1:
         
         if st.button("🔄 検索実行", type="primary", key="btn_s1"):
             with st.spinner("@ポケットからデータを取得中..."):
+                # 入品日の場合はAPI側では日付クエリを外して出版社のみ等で取得し、後でPython側でフィルタ
+                api_date_field = target_date_field if target_date_field in ["field-1", "field-52"] else "field-1"
+                api_start = t1_start if target_date_field in ["field-1", "field-52"] else None
+                api_end = t1_end if target_date_field in ["field-1", "field-52"] else None
+                
                 st.session_state["api_records"] = fetch_pocket_records(
-                    start_date=t1_start, 
-                    end_date=t1_end, 
+                    start_date=api_start, 
+                    end_date=api_end, 
                     target_publisher=publisher_input if publisher_input else None,
-                    date_field=target_date_field
+                    date_field=api_date_field
                 )
+                st.session_state["t1_target_date_field"] = target_date_field
+                st.session_state["t1_start_date"] = t1_start
+                st.session_state["t1_end_date"] = t1_end
             st.rerun()
 
-    if not df_flat.empty:
+    current_target_field = st.session_state.get("t1_target_date_field", "field-1")
+    current_start = st.session_state.get("t1_start_date", date.today())
+    current_end = st.session_state.get("t1_end_date", date.today() + timedelta(days=14))
+    
+    # 入品日（field-90_10）で絞り込む場合のフィルタリング処理
+    if not df_flat.empty and current_target_field == "field-90_10":
+        mask = (df_flat["入品日"] >= current_start) & (df_flat["入品日"] <= current_end)
+        df_flat_filtered = df_flat[mask].copy()
+    else:
+        df_flat_filtered = df_flat
+
+    if not df_flat_filtered.empty:
         edited_flat_df = st.data_editor(
-            df_flat,
+            df_flat_filtered,
             num_rows="fixed",
             key="grid_flat_main",
             use_container_width=True,
@@ -366,7 +399,7 @@ with tab1:
                 "刷回": st.column_config.TextColumn("刷回(96)"),
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "摘要": st.column_config.TextColumn("摘要"),
-                "在庫納品": st.column_config.CheckboxColumn("在庫納品", disabled=True),  # ★ 編集不可に設定
+                "在庫納品": st.column_config.CheckboxColumn("在庫納品", disabled=True),
                 "専用伝票番号": st.column_config.TextColumn("伝票番号(88_9)"),
                 "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
             }
@@ -459,7 +492,7 @@ with tab2:
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
                 "摘要": st.column_config.TextColumn("摘要"),
-                "在庫納品": st.column_config.CheckboxColumn("在庫納品", disabled=True),  # ★ 編集不可に設定
+                "在庫納品": st.column_config.CheckboxColumn("在庫納品", disabled=True),
                 "専用伝票番号": st.column_config.TextColumn("伝票番号(88_9)"),
             }
         )
