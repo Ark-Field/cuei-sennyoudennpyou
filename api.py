@@ -130,9 +130,6 @@ if "api_records" not in st.session_state:
     default_start = date.today()
     default_end = default_start + timedelta(days=14)
     st.session_state["api_records"] = fetch_pocket_records(start_date=default_start, end_date=default_end, target_publisher="岩波書店", date_field="field-1")
-    st.session_state["t1_target_date_field"] = "field-1"
-    st.session_state["t1_start_date"] = default_start
-    st.session_state["t1_end_date"] = default_end
 
 api_records = st.session_state.get("api_records", [])
 
@@ -249,7 +246,7 @@ def save_group_to_pocket(group_df, original_rec, record_id):
         "field-20": str(first_row["定価"]),
         "field-23": str(first_row["判型"]),
         "field-28": str(first_row["刷数"]),
-        # "field-96": str(first_row["刷回"]),  # ← ★自動計算フィールドのため保存ペイロードから除外
+        # "field-96": str(first_row["刷回"]),  # ← 自動計算フィールドのため保存ペイロードから除外
         "field-81": str(first_row["預かり在庫"]),
         "field-93": str(first_row["ISBN"]),
     }
@@ -315,20 +312,10 @@ with tab1:
     st.header("📋 受注一覧表 ＆ データ更新エディタ")
     
     with st.expander("🔍 検索条件の変更・絞り込み", expanded=True):
-        search_date_type = st.radio(
-            "📅 期間検索の基準を選択", 
-            ["受注日（field-1）", "納期（field-52）", "入品日（field-90_10）"], 
-            horizontal=True
-        )
-        
-        if "受注日" in search_date_type:
-            target_date_field = "field-1"
-        elif "納期" in search_date_type:
-            target_date_field = "field-52"
-        else:
-            target_date_field = "field-90_10"
+        search_date_type = st.radio("📅 期間検索の基準を選択", ["受注日（field-1）", "納期（field-52）"], horizontal=True)
+        target_date_field = "field-1" if "受注日" in search_date_type else "field-52"
 
-        col_s1, col_s2, col_s3 = st.columns(3)
+        col_s1, col_s2, col_s3, col_s4 = st.columns(4)
         with col_s1:
             default_start_date = date.today()
             default_end_date = default_start_date + timedelta(days=14)
@@ -337,33 +324,24 @@ with tab1:
             t1_end = st.date_input("期間（終了）", value=default_end_date, key="t1_e")
         with col_s3:
             publisher_input = st.text_input("📖 出版社名で絞り込み", value="岩波書店", key="pub_ord")
+        with col_s4:
+            st.markdown("<br>", unsafe_allow_html=True)
+            only_nyuhin = st.checkbox("💡 入品日があるものだけ表示", value=False, help="チェックすると、取得したデータの中から入品日が入力されている行のみを表示します")
         
         if st.button("🔄 検索実行", type="primary", key="btn_s1"):
             with st.spinner("@ポケットからデータを取得中..."):
-                api_date_field = target_date_field if target_date_field in ["field-1", "field-52"] else "field-1"
-                api_start = t1_start if target_date_field in ["field-1", "field-52"] else None
-                api_end = t1_end if target_date_field in ["field-1", "field-52"] else None
-                
                 st.session_state["api_records"] = fetch_pocket_records(
-                    start_date=api_start, 
-                    end_date=api_end, 
+                    start_date=t1_start, 
+                    end_date=t1_end, 
                     target_publisher=publisher_input if publisher_input else None,
-                    date_field=api_date_field
+                    date_field=target_date_field
                 )
-                st.session_state["t1_target_date_field"] = target_date_field
-                st.session_state["t1_start_date"] = t1_start
-                st.session_state["t1_end_date"] = t1_end
             st.rerun()
 
-    current_target_field = st.session_state.get("t1_target_date_field", "field-1")
-    current_start = st.session_state.get("t1_start_date", date.today())
-    current_end = st.session_state.get("t1_end_date", date.today() + timedelta(days=14))
-    
-    if not df_flat.empty and current_target_field == "field-90_10":
-        mask = (df_flat["入品日"] >= current_start) & (df_flat["入品日"] <= current_end)
-        df_flat_filtered = df_flat[mask].copy()
-    else:
-        df_flat_filtered = df_flat
+    # 表示前のフィルタリング（「入品日があるものだけ表示」チェックに対応）
+    df_flat_filtered = df_flat
+    if not df_flat_filtered.empty and only_nyuhin:
+        df_flat_filtered = df_flat_filtered[df_flat_filtered["入品日"].notna()].copy()
 
     if not df_flat_filtered.empty:
         edited_flat_df = st.data_editor(
@@ -396,7 +374,7 @@ with tab1:
                 "刷回": st.column_config.TextColumn("刷回(96)", disabled=True),  # 刷回は自動計算のため表示のみ
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "摘要": st.column_config.TextColumn("摘要"),
-                "在庫納品": st.column_config.CheckboxColumn("在庫納品", disabled=True),
+                "在庫納品": st.column_config.CheckboxColumn("在庫納品", disabled=True),  # ★ 編集不可に設定
                 "専用伝票番号": st.column_config.TextColumn("伝票番号(88_9)"),
                 "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
             }
