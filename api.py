@@ -748,15 +748,14 @@ with tab2:
                 else:
                     slip_page_size = (170 * mm, 120 * mm)
                 
-                # ご指定の微調整（左へ12mm、上へ2mm）を反映
-                # leftMargin: 20mm - 12mm = 8mm
-                # topMargin: 33.8mm - 2mm = 31.8mm
+                # ご指定の微調整（さらに左へ10mm：元の8mm - 10mm = -2mm）を反映
+                # topMarginはそのまま 31.8mm
                 doc_slip = SimpleDocTemplate(
                     buffer_slip := io.BytesIO(), 
                     pagesize=slip_page_size, 
-                    leftMargin=8 * mm,    # 左へ12mm調整 (20mm - 12mm)
+                    leftMargin=-2 * mm,   # さらに左へ10mm調整 (8mm - 10mm)
                     rightMargin=5 * mm, 
-                    topMargin=31.8 * mm,  # 上へ2mm調整 (33.8mm - 2mm)
+                    topMargin=31.8 * mm,  # 上へ2mm調整済み (33.8mm - 2mm)
                     bottomMargin=0 * mm
                 )
                 story_slip = []
@@ -845,9 +844,4 @@ with tab2:
                 st.download_button(
                     label=label_name,
                     data=buffer_slip,
-                    file_name=f"納品専用伝票_{target_date_str}.pdf",
-                    mime="application/pdf",
-                    key="dl_slip_pdf"
-                )
-    else:
-        st.info(f"ℹ️ 指定された予定日【 {target_date_str} 】に該当するデータはありません。")
+                    file_name
