@@ -147,6 +147,10 @@ tab1, tab2 = st.tabs([
 def build_flat_data(records):
     flat = []
     for record_idx, r in enumerate(records):
+        record_id = str(r.get("_recordId", ""))
+        # @pocketのブラウザ・API用詳細リンクURLの構築
+        pocket_url = f"{POCKET_BASE_URL}/apps/{APP_ID}/records/{record_id}" if record_id else ""
+        
         h_ord_no = str(r.get("field-2", ""))
         h_ord_date = parse_date_safe(r.get("field-1"))
         h_due_date = parse_date_safe(r.get("field-52"))
@@ -193,6 +197,7 @@ def build_flat_data(records):
 
             flat.append({
                 "更新": False,
+                "@pocket詳細": pocket_url,  # ★ @pocketジャンプ用リンク列
                 "_record_idx": record_idx,
                 "_sub_idx": i,
                 "_id_90": sub_id_90,
@@ -224,6 +229,80 @@ def build_flat_data(records):
     return flat
 
 df_flat = pd.DataFrame(build_flat_data(api_records))
+
+# ==========================================
+# 共通の保存処理ヘルパー関数（field-90 & field-88 を一括保存）
+# ==========================================
+def save_group_to_pocket(group_df, original_rec, record_id):
+    update_url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records/{record_id}"
+    first_row = group_df.iloc[0]
+    
+    record_payload = {
+        "field-1": str(first_row["受注日"]) if pd.notna(first_row["受注日"]) else "",
+        "field-2": str(first_row["受注番号"]),
+        "field-3": str(first_row["印刷部数"]),
+        "field-4": str(first_row["受注数量"]),
+        "field-5": str(first_row["単価"]),
+        "field-20": str(first_row["定価"]),
+        "field-23": str(first_row["判型"]),
+        "field-28": str(first_row["刷数"]),
+        "field-29": str(first_row["刷回"]),
+        "field-81": str(first_row["預かり在庫"]),
+        "field-93": str(first_row["ISBN"]),
+    }
+    
+    # 予定日（field-90）のサブテーブル構築
+    orig_sub_90 = original_rec.get("field-90", [])
+    sub90_list = []
+    for _, row in group_df.iterrows():
+        sub_i = int(row["_sub_idx"])
+        item_90 = copy.deepcopy(orig_sub_90[sub_i]) if (isinstance(orig_sub_90, list) and len(orig_sub_90) > sub_i) else {}
+        rec_90_dict = item_90.get("record", {}) if isinstance(item_90, dict) else {}
+        
+        rec_90_dict["field-90_8"] = str(row["予定日"]) if pd.notna(row["予定日"]) else ""
+        item_90["record"] = rec_90_dict
+        sub90_list.append(item_90)
+    record_payload["field-90"] = sub90_list
+
+    # 納品（field-88）のサブテーブル構築
+    orig_sub_88 = original_rec.get("field-88", [])
+    sub88_list = []
+    for _, row in group_df.iterrows():
+        sub_i = int(row["_sub_idx"])
+        item_88 = copy.deepcopy(orig_sub_88[sub_i]) if (isinstance(orig_sub_88, list) and len(orig_sub_88) > sub_i) else {}
+        rec_dict = item_88.get("record", {}) if isinstance(item_88, dict) else {}
+        
+        rec_dict["field-88_2"] = str(row["納品日"]) if pd.notna(row["納品日"]) else ""
+        rec_dict["field-88_4"] = str(row["納品部数"])
+        rec_dict["field-88_5"] = str(row["摘要"])
+        rec_dict["field-88_6"] = bool(row["在庫納品"])
+        rec_dict["field-88_7"] = str(row["PL数"])
+        rec_dict["field-88_8"] = str(row["見本"])
+        rec_dict["field-88_9"] = str(row["専用伝票番号"])
+        
+        h_val = row["配車区分"]
+        if pd.isna(h_val) or str(h_val).lower() in ["nan", "none", ""]:
+            rec_dict["field-88_10"] = ""
+        else:
+            rec_dict["field-88_10"] = str(h_val)
+        
+        item_88["record"] = rec_dict
+        sub88_list.append(item_88)
+    
+    record_payload["field-88"] = sub88_list
+    payload = {"apiVersion": 1.1, "record": record_payload}
+    
+    headers = {
+        "X-At-Pocket-API-Key": POCKET_API_KEY, 
+        "Accept": "application/json", 
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        res = requests.put(update_url, headers=headers, json=payload, timeout=15)
+        return res.status_code in [200, 204], res.text
+    except Exception as ex:
+        return False, str(ex)
 
 # ==========================================
 # タブ1：受注一覧表 ＆ データ更新
@@ -263,6 +342,7 @@ with tab1:
             use_container_width=True,
             column_config={
                 "更新": st.column_config.CheckboxColumn("更新", required=True, help="チェックした行を@pocketに上書き保存"),
+                "@pocket詳細": st.column_config.LinkColumn("🔗 @pocket詳細", display_text="開く", help="クリックすると@pocketの該当レコードを開きます"),
                 "_record_idx": None, "_sub_idx": None, "_id_90": None, "_id_88": None,
                 "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
                 "受注日": st.column_config.DateColumn("受注日", format="YYYY-MM-DD", disabled=True),
@@ -275,13 +355,13 @@ with tab1:
                 "受注数量": st.column_config.TextColumn("受注数量(4)"),
                 "定価": st.column_config.TextColumn("定価", disabled=True),
                 "預かり在庫": st.column_config.TextColumn("預かり在庫(81)"),
-                "予定日": st.column_config.DateColumn("予定日(90_8)", format="YYYY-MM-DD", disabled=True),
+                "予定日": st.column_config.DateColumn("予定日(90_8)", format="YYYY-MM-DD"),  # 予定日編集可能
                 "納品日": st.column_config.DateColumn("納品日", format="YYYY-MM-DD"),
                 "納品部数": st.column_config.TextColumn("納品部数"),
                 "PL数": st.column_config.TextColumn("PL数"),
                 "見本": st.column_config.TextColumn("見本"),
-                "刷数": st.column_config.TextColumn("刷数(28)"),   # field-28 編集可能
-                "刷回": st.column_config.TextColumn("刷回(29)"),   # field-29
+                "刷数": st.column_config.TextColumn("刷数(28)"),
+                "刷回": st.column_config.TextColumn("刷回(29)"),
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "摘要": st.column_config.TextColumn("摘要"),
                 "在庫納品": st.column_config.CheckboxColumn("在庫納品"),
@@ -296,13 +376,7 @@ with tab1:
             if checked_rows.empty:
                 st.warning("⚠️ 保存する行の「更新」チェックボックスにチェックを入れてください。")
             else:
-                headers = {
-                    "X-At-Pocket-API-Key": POCKET_API_KEY, 
-                    "Accept": "application/json", 
-                    "Content-Type": "application/json"
-                }
                 success_count = 0
-                
                 for r_idx, group_df in checked_rows.groupby("_record_idx"):
                     r_idx = int(r_idx)
                     original_rec = api_records[r_idx]
@@ -310,57 +384,11 @@ with tab1:
                     if not record_id:
                         continue
                     
-                    update_url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records/{record_id}"
-                    first_row = group_df.iloc[0]
-                    record_payload = {
-                        "field-1": str(first_row["受注日"]) if pd.notna(first_row["受注日"]) else "",
-                        "field-2": str(first_row["受注番号"]),
-                        "field-3": str(first_row["印刷部数"]),
-                        "field-4": str(first_row["受注数量"]),
-                        "field-5": str(first_row["単価"]),
-                        "field-20": str(first_row["定価"]),
-                        "field-23": str(first_row["判型"]),
-                        "field-28": str(first_row["刷数"]),  # 刷数 field-28
-                        "field-29": str(first_row["刷回"]),  # 刷回 field-29
-                        "field-81": str(first_row["預かり在庫"]),
-                        "field-93": str(first_row["ISBN"]),
-                    }
-                    
-                    orig_sub_88 = original_rec.get("field-88", [])
-                    sub88_list = []
-                    for _, row in group_df.iterrows():
-                        sub_i = int(row["_sub_idx"])
-                        item_88 = copy.deepcopy(orig_sub_88[sub_i]) if (isinstance(orig_sub_88, list) and len(orig_sub_88) > sub_i) else {}
-                        rec_dict = item_88.get("record", {}) if isinstance(item_88, dict) else {}
-                        
-                        rec_dict["field-88_2"] = str(row["納品日"]) if pd.notna(row["納品日"]) else ""
-                        rec_dict["field-88_4"] = str(row["納品部数"])
-                        rec_dict["field-88_5"] = str(row["摘要"])
-                        rec_dict["field-88_6"] = bool(row["在庫納品"])
-                        rec_dict["field-88_7"] = str(row["PL数"])
-                        rec_dict["field-88_8"] = str(row["見本"])
-                        rec_dict["field-88_9"] = str(row["専用伝票番号"])
-                        
-                        h_val = row["配車区分"]
-                        if pd.isna(h_val) or str(h_val).lower() in ["nan", "none", ""]:
-                            rec_dict["field-88_10"] = ""
-                        else:
-                            rec_dict["field-88_10"] = str(h_val)
-                        
-                        item_88["record"] = rec_dict
-                        sub88_list.append(item_88)
-                    
-                    record_payload["field-88"] = sub88_list
-                    payload = {"apiVersion": 1.1, "record": record_payload}
-                    
-                    try:
-                        res = requests.put(update_url, headers=headers, json=payload, timeout=15)
-                        if res.status_code in [200, 204]:
-                            success_count += 1
-                        else:
-                            st.error(f"❌ 書き戻しエラー (ID: {record_id}): {res.text}")
-                    except Exception as ex:
-                        st.error(f"🚨 例外発生: {ex}")
+                    success, err_msg = save_group_to_pocket(group_df, original_rec, record_id)
+                    if success:
+                        success_count += 1
+                    else:
+                        st.error(f"❌ 書き戻しエラー (ID: {record_id}): {err_msg}")
                 
                 if success_count > 0:
                     st.success(f"✅ {success_count} 件のレコードを正常に上書き保存しました！")
@@ -405,6 +433,7 @@ with tab2:
             use_container_width=True,
             column_config={
                 "更新": st.column_config.CheckboxColumn("更新", required=True, help="この行の変更を@pocketに書き戻す"),
+                "@pocket詳細": st.column_config.LinkColumn("🔗 @pocket詳細", display_text="開く", help="クリックすると@pocketの該当レコードを開きます"),
                 "_record_idx": None, "_sub_idx": None, "_id_90": None, "_id_88": None,
                 "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
                 "受注日": st.column_config.DateColumn("受注日", format="YYYY-MM-DD", disabled=True),
@@ -417,13 +446,13 @@ with tab2:
                 "受注数量": st.column_config.TextColumn("受注数量"),
                 "定価": st.column_config.TextColumn("定価", disabled=True),
                 "預かり在庫": st.column_config.TextColumn("預かり在庫"),
-                "予定日": st.column_config.DateColumn("予定日", format="YYYY-MM-DD", disabled=True),
+                "予定日": st.column_config.DateColumn("予定日", format="YYYY-MM-DD"),  # 予定日編集可能
                 "納品日": st.column_config.DateColumn("納品日", format="YYYY-MM-DD"),
                 "納品部数": st.column_config.TextColumn("納品部数"),
                 "PL数": st.column_config.TextColumn("PL数"),
                 "見本": st.column_config.TextColumn("見本"),
-                "刷数": st.column_config.TextColumn("刷数(28)"),   # field-28 編集可能
-                "刷回": st.column_config.TextColumn("刷回(29)"),   # field-29
+                "刷数": st.column_config.TextColumn("刷数(28)"),
+                "刷回": st.column_config.TextColumn("刷回(29)"),
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
                 "摘要": st.column_config.TextColumn("摘要"),
@@ -437,13 +466,7 @@ with tab2:
             if checked_t2.empty:
                 st.warning("⚠️ 書き戻す行の更新チェックボックスにチェックを入れてください。")
             else:
-                headers = {
-                    "X-At-Pocket-API-Key": POCKET_API_KEY, 
-                    "Accept": "application/json", 
-                    "Content-Type": "application/json"
-                }
                 success_count = 0
-                
                 for r_idx, group_df in checked_t2.groupby("_record_idx"):
                     r_idx = int(r_idx)
                     original_rec = api_records[r_idx]
@@ -451,57 +474,11 @@ with tab2:
                     if not record_id:
                         continue
                     
-                    update_url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records/{record_id}"
-                    first_row = group_df.iloc[0]
-                    record_payload = {
-                        "field-1": str(first_row["受注日"]) if pd.notna(first_row["受注日"]) else "",
-                        "field-2": str(first_row["受注番号"]),
-                        "field-3": str(first_row["印刷部数"]),
-                        "field-4": str(first_row["受注数量"]),
-                        "field-5": str(first_row["単価"]),
-                        "field-20": str(first_row["定価"]),
-                        "field-23": str(first_row["判型"]),
-                        "field-28": str(first_row["刷数"]),  # 刷数 field-28
-                        "field-29": str(first_row["刷回"]),  # 刷回 field-29
-                        "field-81": str(first_row["預かり在庫"]),
-                        "field-93": str(first_row["ISBN"]),
-                    }
-                    
-                    orig_sub_88 = original_rec.get("field-88", [])
-                    sub88_list = []
-                    for _, row in group_df.iterrows():
-                        sub_i = int(row["_sub_idx"])
-                        item_88 = copy.deepcopy(orig_sub_88[sub_i]) if (isinstance(orig_sub_88, list) and len(orig_sub_88) > sub_i) else {}
-                        rec_dict = item_88.get("record", {}) if isinstance(item_88, dict) else {}
-                        
-                        rec_dict["field-88_2"] = str(row["納品日"]) if pd.notna(row["納品日"]) else ""
-                        rec_dict["field-88_4"] = str(row["納品部数"])
-                        rec_dict["field-88_5"] = str(row["摘要"])
-                        rec_dict["field-88_6"] = bool(row["在庫納品"])
-                        rec_dict["field-88_7"] = str(row["PL数"])
-                        rec_dict["field-88_8"] = str(row["見本"])
-                        rec_dict["field-88_9"] = str(row["専用伝票番号"])
-                        
-                        h_val = row["配車区分"]
-                        if pd.isna(h_val) or str(h_val).lower() in ["nan", "none", ""]:
-                            rec_dict["field-88_10"] = ""
-                        else:
-                            rec_dict["field-88_10"] = str(h_val)
-                        
-                        item_88["record"] = rec_dict
-                        sub88_list.append(item_88)
-                    
-                    record_payload["field-88"] = sub88_list
-                    payload = {"apiVersion": 1.1, "record": record_payload}
-                    
-                    try:
-                        res = requests.put(update_url, headers=headers, json=payload, timeout=15)
-                        if res.status_code in [200, 204]:
-                            success_count += 1
-                        else:
-                            st.error(f"❌ タブ2書き戻しエラー (ID: {record_id}): {res.text}")
-                    except Exception as ex:
-                        st.error(f"🚨 例外発生: {ex}")
+                    success, err_msg = save_group_to_pocket(group_df, original_rec, record_id)
+                    if success:
+                        success_count += 1
+                    else:
+                        st.error(f"❌ タブ2書き戻しエラー (ID: {record_id}): {err_msg}")
                 
                 if success_count > 0:
                     st.success(f"✅ {success_count} 件のデータを@pocketへ正常に書き戻しました！")
@@ -679,83 +656,28 @@ with tab2:
                             df_t2_flat.at[idx, "専用伝票番号"] = str(current_no)
                             updated_count += 1
                 
-                headers = {
-                    "X-At-Pocket-API-Key": POCKET_API_KEY, 
-                    "Accept": "application/json", 
-                    "Content-Type": "application/json"
-                }
                 for r_idx, group_df in df_t2_flat.groupby("_record_idx"):
                     r_idx = int(r_idx)
                     original_rec = api_records[r_idx]
                     record_id = original_rec.get("_recordId")
                     if not record_id:
                         continue
-                    
-                    update_url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records/{record_id}"
-                    first_row = group_df.iloc[0]
-                    record_payload = {
-                        "field-1": str(first_row["受注日"]) if pd.notna(first_row["受注日"]) else "",
-                        "field-2": str(first_row["受注番号"]),
-                        "field-3": str(first_row["印刷部数"]),
-                        "field-4": str(first_row["受注数量"]),
-                        "field-5": str(first_row["単価"]),
-                        "field-20": str(first_row["定価"]),
-                        "field-23": str(first_row["判型"]),
-                        "field-28": str(first_row["刷数"]),  # 刷数 field-28
-                        "field-29": str(first_row["刷回"]),  # 刷回 field-29
-                        "field-81": str(first_row["預かり在庫"]),
-                        "field-93": str(first_row["ISBN"]),
-                    }
-                    
-                    orig_sub_88 = original_rec.get("field-88", [])
-                    sub88_list = []
-                    for _, row in group_df.iterrows():
-                        sub_i = int(row["_sub_idx"])
-                        item_88 = copy.deepcopy(orig_sub_88[sub_i]) if (isinstance(orig_sub_88, list) and len(orig_sub_88) > sub_i) else {}
-                        rec_dict = item_88.get("record", {}) if isinstance(item_88, dict) else {}
-                        
-                        rec_dict["field-88_2"] = str(row["納品日"]) if pd.notna(row["納品日"]) else ""
-                        rec_dict["field-88_4"] = str(row["納品部数"])
-                        rec_dict["field-88_5"] = str(row["摘要"])
-                        rec_dict["field-88_6"] = bool(row["在庫納品"])
-                        rec_dict["field-88_7"] = str(row["PL数"])
-                        rec_dict["field-88_8"] = str(row["見本"])
-                        rec_dict["field-88_9"] = str(row["専用伝票番号"])
-                        
-                        h_val = row["配車区分"]
-                        if pd.isna(h_val) or str(h_val).lower() in ["nan", "none", ""]:
-                            rec_dict["field-88_10"] = ""
-                        else:
-                            rec_dict["field-88_10"] = str(h_val)
-                        
-                        item_88["record"] = rec_dict
-                        sub88_list.append(item_88)
-                    
-                    record_payload["field-88"] = sub88_list
-                    payload = {"apiVersion": 1.1, "record": record_payload}
-                    
-                    try:
-                        requests.put(update_url, headers=headers, json=payload, timeout=15)
-                    except Exception:
-                        pass
+                    save_group_to_pocket(group_df, original_rec, record_id)
 
-                st.success(f"🔒 番号死守ガード適用（新規採番: {updated_count}件 ＆ @pocket自動保存完了）")
+                st.success(f"🔒 番号死守ガード適用 ＆ @pocket自動保存完了")
                 
-                # モードに応じたページサイズとマージンの切り替え
                 is_test_mode = "テスト用" in print_mode
                 if is_test_mode:
                     slip_page_size = A4
                 else:
                     slip_page_size = (170 * mm, 120 * mm)
                 
-                # ご指定の微調整（さらに左へ10mm：元の8mm - 10mm = -2mm）を反映
-                # topMarginはそのまま 31.8mm
                 doc_slip = SimpleDocTemplate(
                     buffer_slip := io.BytesIO(), 
                     pagesize=slip_page_size, 
-                    leftMargin=-2 * mm,   # さらに左へ10mm調整 (8mm - 10mm)
+                    leftMargin=-2 * mm,   
                     rightMargin=5 * mm, 
-                    topMargin=31.8 * mm,  # 上へ2mm調整済み (33.8mm - 2mm)
+                    topMargin=31.8 * mm,  
                     bottomMargin=0 * mm
                 )
                 story_slip = []
@@ -790,15 +712,15 @@ with tab2:
                             title_val = item.get('書名', '')
                             
                             row_cells = [
-                                Paragraph(col1_text, slip_cell_style),                  # 19mm: ISBNと判型2段
-                                Paragraph(str(title_val), slip_cell_style),             # 70mm: 書名
-                                Paragraph(str(item.get('定価', '')), slip_cell_right),  # 15mm: 定価
-                                Paragraph(str(item.get('刷数', '')), slip_cell_right),  # 11mm: 刷数 (field-28)
-                                Paragraph("", slip_cell_style),                         # 15mm: 空白
-                                Paragraph(str(item.get('納品部数', '')), slip_cell_right),# 15mm: 納品部数
-                                Paragraph(str(item.get('PL数', '')), slip_cell_right),  # 8mm: PL数
-                                Paragraph("", slip_cell_style),                         # 15mm: 空白
-                                Paragraph(str(item.get('見本', '')), slip_cell_right),  # 7mm: 見本数
+                                Paragraph(col1_text, slip_cell_style),                  
+                                Paragraph(str(title_val), slip_cell_style),             
+                                Paragraph(str(item.get('定価', '')), slip_cell_right),  
+                                Paragraph(str(item.get('刷数', '')), slip_cell_right),  
+                                Paragraph("", slip_cell_style),                         
+                                Paragraph(str(item.get('納品部数', '')), slip_cell_right),
+                                Paragraph(str(item.get('PL数', '')), slip_cell_right),  
+                                Paragraph("", slip_cell_style),                         
+                                Paragraph(str(item.get('見本', '')), slip_cell_right),  
                             ]
                             page_rows.append(row_cells)
                         
@@ -807,18 +729,17 @@ with tab2:
                             page_rows.append(empty_row)
                         
                         col_widths = [
-                            19 * mm,  # ISBN / 判型 (2段)
-                            70 * mm,  # 書名
-                            15 * mm,  # 定価
-                            11 * mm,  # 刷数 (field-28)
-                            15 * mm,  # 空白
-                            15 * mm,  # 納品部数
-                            8 * mm,   # PL数
-                            15 * mm,  # 空白
-                            7 * mm    # 見本数
+                            19 * mm,  
+                            70 * mm,  
+                            15 * mm,  
+                            11 * mm,  
+                            15 * mm,  
+                            15 * mm,  
+                            8 * mm,   
+                            15 * mm,  
+                            7 * mm    
                         ]
                         
-                        # 1行の高さ 10mm × 6行 ＝ 60mm
                         slip_table = Table(page_rows, colWidths=col_widths, rowHeights=[10 * mm] * 6)
                         
                         table_style_list = [
@@ -829,7 +750,7 @@ with tab2:
                             ('RIGHTPADDING', (0,0), (-1,-1), 2),
                         ]
                         if is_test_mode:
-                            table_style_list.append(('BOX', (0,0), (-1,-1), 1, colors.red)) # 赤枠で伝票サイズを表示
+                            table_style_list.append(('BOX', (0,0), (-1,-1), 1, colors.red)) 
                             table_style_list.append(('INNERGRID', (0,0), (-1,-1), 0.25, colors.lightgrey))
                         
                         slip_table.setStyle(TableStyle(table_style_list))
