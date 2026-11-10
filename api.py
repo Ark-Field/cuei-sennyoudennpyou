@@ -149,8 +149,8 @@ def build_flat_data(records):
     for record_idx, r in enumerate(records):
         record_id = str(r.get("_recordId", ""))
         
-        # @pocketの正しいレコード詳細・編集画面用URL構成に修正
-        pocket_url = f"{POCKET_BASE_URL}/apps/{APP_ID}/records/{record_id}" if record_id and record_id != "None" else ""
+        # @pocketの編集画面用URL構成に変更（末尾に /edit を追加）
+        pocket_url = f"{POCKET_BASE_URL}/apps/{APP_ID}/records/{record_id}/edit" if record_id and record_id != "None" else ""
         
         h_ord_no = str(r.get("field-2", ""))
         h_ord_date = parse_date_safe(r.get("field-1"))
@@ -164,7 +164,7 @@ def build_flat_data(records):
         h_qty = str(r.get("field-4", ""))
         h_tanka = str(r.get("field-5", ""))
         h_price = str(r.get("field-20", ""))
-        h_shusu = str(r.get("field-28", ""))   # 刷数 (field-28)
+        h_shusu = str(r.get("field-28", ""))    # 刷数 (field-28)
         h_shukai = str(r.get("field-96", "")) # 刷回 (field-96) - 自動計算
         h_deposit = str(r.get("field-81", ""))
         
@@ -180,8 +180,8 @@ def build_flat_data(records):
         sub_89 = r.get("field-89", [])
         
         max_len = max(len(sub_90) if isinstance(sub_90, list) else 0,
-                      len(sub_88) if isinstance(sub_88, list) else 0,
-                      len(sub_89) if isinstance(sub_89, list) else 0, 1)
+                    len(sub_88) if isinstance(sub_88, list) else 0,
+                    len(sub_89) if isinstance(sub_89, list) else 0, 1)
         
         for i in range(max_len):
             item_90 = sub_90[i] if isinstance(sub_90, list) and len(sub_90) > i else {}
@@ -248,7 +248,6 @@ def save_group_to_pocket(group_df, original_rec, record_id):
         "field-20": str(first_row["定価"]),
         "field-23": str(first_row["判型"]),
         "field-28": str(first_row["刷数"]),
-        # "field-96": str(first_row["刷回"]),  # ← 自動計算フィールドのため保存ペイロードから除外
         "field-81": str(first_row["預かり在庫"]),
         "field-93": str(first_row["ISBN"]),
     }
@@ -353,7 +352,11 @@ with tab1:
             use_container_width=True,
             column_config={
                 "更新": st.column_config.CheckboxColumn("更新", required=True, help="チェックした行を@pocketに上書き保存"),
-                "@pocket詳細": st.column_config.LinkColumn("🔗 @pocket詳細", display_text="📝 詳細を開く", help="クリックすると@pocketの該当レコードを開きます"),
+                "@pocket詳細": st.column_config.LinkColumn(
+                    "🔗 @pocket編集", 
+                    display_text="📝 編集画面を開く", 
+                    help="クリックすると@pocketの編集画面を別タブで開きます"
+                ),
                 "_record_idx": None, "_sub_idx": None, "_id_90": None, "_id_88": None,
                 "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
                 "受注日": st.column_config.DateColumn("受注日", format="YYYY-MM-DD", disabled=True),
@@ -376,7 +379,7 @@ with tab1:
                 "刷回": st.column_config.TextColumn("刷回(96)", disabled=True),  # 刷回は自動計算のため表示のみ
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "摘要": st.column_config.TextColumn("摘要"),
-                "在庫納品": st.column_config.CheckboxColumn("在庫納品", disabled=True),  # ★ 編集不可に設定
+                "在庫納品": st.column_config.CheckboxColumn("在庫納品", disabled=True),  # 編集不可に設定
                 "専用伝票番号": st.column_config.TextColumn("伝票番号(88_9)"),
                 "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
             }
@@ -445,7 +448,11 @@ with tab2:
             use_container_width=True,
             column_config={
                 "更新": st.column_config.CheckboxColumn("更新", required=True, help="この行の変更を@pocketに書き戻す"),
-                "@pocket詳細": st.column_config.LinkColumn("🔗 @pocket詳細", display_text="📝 詳細を開く", help="クリックすると@pocketの該当レコードを開きます"),
+                "@pocket詳細": st.column_config.LinkColumn(
+                    "🔗 @pocket編集", 
+                    display_text="📝 編集画面を開く", 
+                    help="クリックすると@pocketの編集画面を別タブで開きます"
+                ),
                 "_record_idx": None, "_sub_idx": None, "_id_90": None, "_id_88": None,
                 "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
                 "受注日": st.column_config.DateColumn("受注日", format="YYYY-MM-DD", disabled=True),
@@ -726,14 +733,14 @@ with tab2:
                             title_val = item.get('書名', '')
                             
                             row_cells = [
-                                Paragraph(col1_text, slip_cell_style),                  
-                                Paragraph(str(title_val), slip_cell_style),             
+                                Paragraph(col1_text, slip_cell_style),                 
+                                Paragraph(str(title_val), slip_cell_style),              
                                 Paragraph(str(item.get('定価', '')), slip_cell_right),  
                                 Paragraph(str(item.get('刷数', '')), slip_cell_right),  
-                                Paragraph("", slip_cell_style),                         
+                                Paragraph("", slip_cell_style),                        
                                 Paragraph(str(item.get('納品部数', '')), slip_cell_right),
                                 Paragraph(str(item.get('PL数', '')), slip_cell_right),  
-                                Paragraph("", slip_cell_style),                         
+                                Paragraph("", slip_cell_style),                        
                                 Paragraph(str(item.get('見本', '')), slip_cell_right),  
                             ]
                             page_rows.append(row_cells)
