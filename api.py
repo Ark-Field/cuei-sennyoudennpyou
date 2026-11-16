@@ -149,7 +149,6 @@ def build_flat_data(records):
     for record_idx, r in enumerate(records):
         record_id = str(r.get("_recordId", ""))
         
-        # @pocketの編集画面用URL構成に変更（末尾に /edit を追加）
         pocket_url = f"{POCKET_BASE_URL}/apps/{APP_ID}/records/{record_id}/edit" if record_id and record_id != "None" else ""
         
         h_ord_no = str(r.get("field-2", ""))
@@ -196,6 +195,11 @@ def build_flat_data(records):
             if not haisha_val or haisha_val.lower() in ["nan", "none", ""]:
                 haisha_val = ""
 
+            # 納品部数 + 見本 = 納品総数の算出
+            n_qty_val = safe_float(rec_88.get("field-88_4", ""))
+            m_qty_val = safe_float(rec_88.get("field-88_8", ""))
+            total_delivered = int(n_qty_val + m_qty_val)
+
             flat.append({
                 "更新": False,
                 "@pocket詳細": pocket_url,
@@ -213,18 +217,19 @@ def build_flat_data(records):
                 "印刷部数": h_print_qty,
                 "受注数量": h_qty,
                 "定価": h_price,
-                "預かり在庫": h_deposit,
                 "予定日": parse_date_safe(rec_90.get("field-90_8")),
                 "入品日": parse_date_safe(rec_90.get("field-90_10")),
                 "納品日": parse_date_safe(rec_88.get("field-88_2")),
-                "納品部数": str(rec_88.get("field-88_4", "")),
-                "PL数": str(rec_88.get("field-88_7", "")),
-                "見本": str(rec_88.get("field-88_8", "")),
                 "刷数": h_shusu,    # field-28
                 "刷回": h_shukai,  # field-96 (自動計算)
+                "預かり在庫": h_deposit,
+                "納品部数": str(rec_88.get("field-88_4", "")),
+                "見本": str(rec_88.get("field-88_8", "")),
+                "納品総数": total_delivered,  # ★新規追加（書き戻し無）
+                "在庫納品": bool(rec_88.get("field-88_6", False)),
+                "PL数": str(rec_88.get("field-88_7", "")),
                 "単価": h_tanka,
                 "摘要": str(rec_88.get("field-88_5", "")),
-                "在庫納品": bool(rec_88.get("field-88_6", False)),
                 "専用伝票番号": str(rec_88.get("field-88_9", "")),
                 "配車区分": haisha_val,
             })
@@ -339,7 +344,6 @@ with tab1:
                 )
             st.rerun()
 
-    # 表示前のフィルタリング（「入品日があるものだけ表示」チェックに対応）
     df_flat_filtered = df_flat
     if not df_flat_filtered.empty and only_nyuhin:
         df_flat_filtered = df_flat_filtered[df_flat_filtered["入品日"].notna()].copy()
@@ -368,18 +372,19 @@ with tab1:
                 "印刷部数": st.column_config.TextColumn("印刷部数(3)"),
                 "受注数量": st.column_config.TextColumn("受注数量(4)"),
                 "定価": st.column_config.TextColumn("定価", disabled=True),
-                "預かり在庫": st.column_config.TextColumn("預かり在庫(81)"),
                 "予定日": st.column_config.DateColumn("予定日(90_8)", format="YYYY-MM-DD"),
                 "入品日": st.column_config.DateColumn("入品日(90_10)", format="YYYY-MM-DD"),
                 "納品日": st.column_config.DateColumn("納品日", format="YYYY-MM-DD"),
-                "納品部数": st.column_config.TextColumn("納品部数"),
-                "PL数": st.column_config.TextColumn("PL数"),
-                "見本": st.column_config.TextColumn("見本"),
                 "刷数": st.column_config.TextColumn("刷数(28)"),
-                "刷回": st.column_config.TextColumn("刷回(96)", disabled=True),  # 刷回は自動計算のため表示のみ
+                "刷回": st.column_config.TextColumn("刷回(96)", disabled=True),
+                "預かり在庫": st.column_config.TextColumn("預かり在庫(81)"),
+                "納品部数": st.column_config.TextColumn("納品部数"),
+                "見本": st.column_config.TextColumn("見本"),
+                "納品総数": st.column_config.NumberColumn("納品総数", disabled=True, format="%d"),
+                "在庫納品": st.column_config.CheckboxColumn("在庫納品", disabled=True),
+                "PL数": st.column_config.TextColumn("PL数"),
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "摘要": st.column_config.TextColumn("摘要"),
-                "在庫納品": st.column_config.CheckboxColumn("在庫納品", disabled=True),  # 編集不可に設定
                 "専用伝票番号": st.column_config.TextColumn("伝票番号(88_9)"),
                 "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
             }
@@ -464,19 +469,20 @@ with tab2:
                 "印刷部数": st.column_config.TextColumn("印刷部数"),
                 "受注数量": st.column_config.TextColumn("受注数量"),
                 "定価": st.column_config.TextColumn("定価", disabled=True),
-                "預かり在庫": st.column_config.TextColumn("預かり在庫"),
                 "予定日": st.column_config.DateColumn("予定日", format="YYYY-MM-DD"),
                 "入品日": st.column_config.DateColumn("入品日", format="YYYY-MM-DD"),
                 "納品日": st.column_config.DateColumn("納品日", format="YYYY-MM-DD"),
-                "納品部数": st.column_config.TextColumn("納品部数"),
-                "PL数": st.column_config.TextColumn("PL数"),
-                "見本": st.column_config.TextColumn("見本"),
                 "刷数": st.column_config.TextColumn("刷数(28)"),
                 "刷回": st.column_config.TextColumn("刷回(96)", disabled=True),
+                "預かり在庫": st.column_config.TextColumn("預かり在庫"),
+                "納品部数": st.column_config.TextColumn("納品部数"),
+                "見本": st.column_config.TextColumn("見本"),
+                "納品総数": st.column_config.NumberColumn("納品総数", disabled=True, format="%d"),
+                "在庫納品": st.column_config.CheckboxColumn("在庫納品", disabled=True),
+                "PL数": st.column_config.TextColumn("PL数"),
                 "単価": st.column_config.TextColumn("単価(5)"),
                 "配車区分": st.column_config.SelectboxColumn("配車区分", options=["", "A便", "B便", "C便", "自社便", "宅配便"]),
                 "摘要": st.column_config.TextColumn("摘要"),
-                "在庫納品": st.column_config.CheckboxColumn("在庫納品", disabled=True),
                 "専用伝票番号": st.column_config.TextColumn("伝票番号(88_9)"),
             }
         )
@@ -608,7 +614,7 @@ with tab2:
                     ws = wb.active
                     ws.title = "納品管理帳"
                     
-                    headers = ["出版社名", "配車便", "判型", "書名", "ISBN", "刷回", "定価", "印刷部数", "納品部数", "見本", "総部数", "単価", "預り在庫", "売上(納品金額)", "予定日", "入品日"]
+                    headers = ["出版社名", "配車便", "判型", "書名", "ISBN", "刷回", "定価", "印刷部数", "納品部数", "見本", "納品総数", "総部数", "単価", "預り在庫", "売上(納品金額)", "予定日", "入品日"]
                     ws.append(headers)
                     
                     for _, row in df_t2_flat.iterrows():
@@ -629,6 +635,7 @@ with tab2:
                             safe_float(row.get("印刷部数", 0)),
                             safe_float(row.get("納品部数", 0)),
                             safe_float(row.get("見本", 0)),
+                            safe_float(row.get("納品総数", 0)),
                             total_qty,
                             tanka,
                             safe_float(row.get("預かり在庫", 0)),
