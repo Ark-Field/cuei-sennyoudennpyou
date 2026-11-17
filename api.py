@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, date
 import streamlit as st
 import copy
 import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 # ReportLab関連（PDF出力用）
 from reportlab.lib.pagesizes import A4, landscape
@@ -528,17 +530,12 @@ with tab2:
                     styles = getSampleStyleSheet()
                     title_style = ParagraphStyle('JpTitle', parent=styles['Heading1'], fontName=JP_FONT, fontSize=14, leading=18, alignment=1)
                     
-                    # 7.5pt用スタイル（納品日・判型・ISBN）
                     cell_75_center = ParagraphStyle('JpCell75C', parent=styles['Normal'], fontName=JP_FONT, fontSize=7.5, leading=9.5, alignment=1)
-                    
-                    # 8.5pt用スタイル（その他の明細用）
                     cell_style = ParagraphStyle('JpCell', parent=styles['Normal'], fontName=JP_FONT, fontSize=8.5, leading=11)
                     cell_right = ParagraphStyle('JpCellR', parent=styles['Normal'], fontName=JP_FONT, fontSize=8.5, leading=11, alignment=2)
                     cell_center = ParagraphStyle('JpCellC', parent=styles['Normal'], fontName=JP_FONT, fontSize=8.5, leading=11, alignment=1)
-                    
                     footer_left_style = ParagraphStyle('FooterLeft', parent=styles['Normal'], fontName=JP_FONT, fontSize=7.5, leading=10, alignment=0)
 
-                    # 💡 シンプルなタイトル（納品管理帳 【2026/00/00】形式）
                     story_sch.append(Paragraph(f"<b>納品管理帳 【{target_date_str}】</b>", title_style))
                     story_sch.append(Spacer(1, 4*mm))
                     
@@ -586,13 +583,9 @@ with tab2:
                             sum_total_qty += total_qty
                             sum_uriage += uriage
 
-                            # 印回：{刷数}-{刷回} （「回」の文字なし）
                             shusu_val = str(row.get("刷数", ""))
                             shukai_val = str(row.get("刷回", ""))
-                            if shusu_val or shukai_val:
-                                inkai_str = f"{shusu_val}-{shukai_val}"
-                            else:
-                                inkai_str = ""
+                            inkai_str = f"{shusu_val}-{shukai_val}" if (shusu_val or shukai_val) else ""
 
                             n_date_val = row.get("納品日", "")
                             n_date_str = str(n_date_val)[:10] if pd.notna(n_date_val) else ""
@@ -645,7 +638,6 @@ with tab2:
                             16*mm, 16*mm, 16*mm, 12*mm, 16*mm, 14*mm, 
                             16*mm, 17*mm, 17*mm, 14*mm
                         ]
-                        
                         row_heights = [6.3*mm] * len(table_data)
                         
                         schedule_table = Table(table_data, colWidths=col_widths, rowHeights=row_heights)
@@ -660,8 +652,6 @@ with tab2:
                         
                         story_sch.append(schedule_table)
                         story_sch.append(Spacer(1, 1.5*mm))
-                        
-                        # 表の左下に (株)中永製本所 を配置
                         story_sch.append(Paragraph("(株)中永製本所", footer_left_style))
                         story_sch.append(Spacer(1, 3*mm))
                         
@@ -681,39 +671,180 @@ with tab2:
             else:
                 if st.button("🚀 顧客別・便別 納品管理帳(予定表)Excelを生成 [.xlsx]", type="secondary", key="btn_generate_schedule_xlsx"):
                     wb = openpyxl.Workbook()
-                    ws = wb.active
-                    ws.title = "納品管理帳"
+                    # デフォルトシートを削除してグループごとにシートを作成するか、1シートに縦に並べる形にします。
+                    # ここではPDFと同じように「出版社名 ＋ 配車便」ごとにシートを分ける構造にします。
+                    default_ws = wb.active
+                    wb.remove(default_ws)
                     
-                    headers = ["出版社名", "配車便", "判型", "書名", "ISBN", "刷回", "定価", "印刷部数", "納品部数", "見本", "納品総数", "総部数", "単価", "預り在庫", "売上(納品金額)", "予定日", "入品日"]
-                    ws.append(headers)
+                    groups = list(df_t2_flat.groupby(["出版社名", "配車区分"]))
                     
-                    for _, row in df_t2_flat.iterrows():
-                        n_qty = safe_float(row.get("納品部数", 0))
-                        m_qty = safe_float(row.get("見本", 0))
-                        tanka = safe_float(row.get("単価", 0))
-                        total_qty = int(n_qty + m_qty)
-                        uriage = int(total_qty * tanka)
+                    thin_border = Border(
+                        left=Side(style='thin', color='888888'),
+                        right=Side(style='thin', color='888888'),
+                        top=Side(style='thin', color='888888'),
+                        bottom=Side(style='thin', color='888888')
+                    )
+                    header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid") # 薄いグレー
+                    footer_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid") # さらに薄いグレー
+                    
+                    font_title = Font(name="Meiryo", size=14, bold=True)
+                    font_header = Font(name="Meiryo", size=9, bold=True)
+                    font_cell = Font(name="Meiryo", size=9, bold=True) # PDF同様太字に準拠
+                    font_footer = Font(name="Meiryo", size=9, bold=True)
+                    font_corp = Font(name="Meiryo", size=8)
+
+                    align_center = Alignment(horizontal="center", vertical="center")
+                    align_right = Alignment(horizontal="right", vertical="center")
+                    align_left = Alignment(horizontal="left", vertical="center")
+
+                    for (pub, vehicle), group in groups:
+                        sheet_name = f"{pub}_{vehicle}" if vehicle else pub
+                        # シート名の文字数制限（31文字以内）と使用不可文字の対策
+                        sheet_name = "".join(c for c in sheet_name if c not in ['\\', '/', '?', '*', '[', ':', ']'])[:31]
+                        ws = wb.create_sheet(title=sheet_name)
+                        ws.views.sheetView[0].showGridLines = True
                         
-                        ws.append([
-                            row.get("出版社名", ""),
-                            row.get("配車区分", ""),
-                            row.get("判型", ""),
-                            row.get("書名", ""),
-                            row.get("ISBN", ""),
-                            row.get("刷回", ""),
-                            safe_float(row.get("定価", 0)),
-                            safe_float(row.get("印刷部数", 0)),
-                            safe_float(row.get("納品部数", 0)),
-                            safe_float(row.get("見本", 0)),
-                            safe_float(row.get("納品総数", 0)),
-                            total_qty,
-                            tanka,
-                            safe_float(row.get("預かり在庫", 0)),
-                            uriage,
-                            target_date_str,
-                            str(row.get("入品日", ""))
-                        ])
-                    
+                        # 1. タイトル行
+                        ws.cell(row=1, column=1, value=f"納品管理帳 【{target_date_str}】").font = font_title
+                        ws.row_dimensions[1].height = 25
+                        
+                        # 2. ヘッダー行
+                        headers = [
+                            "納品日", "判型", "ISBN", "書名", "印回", "定価", 
+                            "印刷部数", "納品部数", "納品実績", "見本", "総部数", 
+                            "単価", "預り在庫", "売上", "納品金額", "在庫金額"
+                        ]
+                        ws.append([]) # 空行
+                        ws.append(headers)
+                        header_row_idx = 3
+                        ws.row_dimensions[header_row_idx].height = 22
+                        
+                        for col_idx in range(1, len(headers) + 1):
+                            cell = ws.cell(row=header_row_idx, column=col_idx)
+                            cell.font = font_header
+                            cell.fill = header_fill
+                            cell.border = thin_border
+                            cell.alignment = align_center
+
+                        # 3. 明細データ行
+                        current_row = 4
+                        sum_print_qty = 0
+                        sum_delivery_qty = 0
+                        sum_actual_qty = 0
+                        sum_total_qty = 0
+                        sum_uriage = 0
+                        
+                        row_count = 0
+                        for _, row in group.iterrows():
+                            row_count += 1
+                            n_qty = safe_float(row.get("納品部数", 0))
+                            m_qty = safe_float(row.get("見本", 0))
+                            tanka = safe_float(row.get("単価", 0))
+                            total_qty = int(n_qty + m_qty)
+                            uriage = int(total_qty * tanka)
+                            
+                            sum_print_qty += safe_float(row.get("印刷部数", 0))
+                            sum_delivery_qty += n_qty
+                            sum_actual_qty += n_qty
+                            sum_total_qty += total_qty
+                            sum_uriage += uriage
+
+                            shusu_val = str(row.get("刷数", ""))
+                            shukai_val = str(row.get("刷回", ""))
+                            inkai_str = f"{shusu_val}-{shukai_val}" if (shusu_val or shukai_val) else ""
+
+                            n_date_val = row.get("納品日", "")
+                            n_date_str = str(n_date_val)[:10] if pd.notna(n_date_val) else ""
+
+                            row_data = [
+                                n_date_str,
+                                row.get("判型", ""),
+                                row.get("ISBN", ""),
+                                row.get("書名", ""),
+                                inkai_str,
+                                safe_float(row.get("定価", 0)),
+                                safe_float(row.get("印刷部数", 0)),
+                                safe_float(row.get("納品部数", 0)),
+                                safe_float(row.get("納品部数", 0)),
+                                safe_float(row.get("見本", 0)),
+                                total_qty,
+                                tanka,
+                                safe_float(row.get("預かり在庫", 0)),
+                                uriage,
+                                uriage,
+                                0
+                            ]
+                            
+                            ws.append(row_data)
+                            ws.row_dimensions[current_row].height = 20
+                            
+                            for col_idx in range(1, len(row_data) + 1):
+                                cell = ws.cell(row=current_row, column=col_idx)
+                                cell.font = font_cell
+                                cell.border = thin_border
+                                
+                                # 配置と数値書式
+                                if col_idx in [1, 2, 3, 5]: # 納品日, 判型, ISBN, 印回 -> 中央
+                                    cell.alignment = align_center
+                                elif col_idx in [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]: # 数値列 -> 右寄せ ＆ カンマ区切り
+                                    cell.alignment = align_right
+                                    cell.number_format = '#,##0'
+                                else:
+                                    cell.alignment = align_left
+                                    
+                            current_row += 1
+
+                        # 4. 空行を埋めてPDFと同じ20行のフォーマットを維持
+                        while row_count < 20:
+                            row_count += 1
+                            empty_row = [""] * 16
+                            ws.append(empty_row)
+                            ws.row_dimensions[current_row].height = 20
+                            for col_idx in range(1, 17):
+                                ws.cell(row=current_row, column=col_idx).border = thin_border
+                            current_row += 1
+
+                        # 5. 合計行
+                        footer_data = [
+                            "合計", "", "", "", "", "",
+                            sum_print_qty,
+                            sum_delivery_qty,
+                            sum_actual_qty,
+                            "",
+                            sum_total_qty,
+                            "",
+                            "",
+                            sum_uriage,
+                            sum_uriage,
+                            ""
+                        ]
+                        ws.append(footer_data)
+                        ws.row_dimensions[current_row].height = 20
+                        
+                        for col_idx in range(1, 17):
+                            cell = ws.cell(row=current_row, column=col_idx)
+                            cell.font = font_footer
+                            cell.fill = footer_fill
+                            cell.border = thin_border
+                            if col_idx == 1:
+                                cell.alignment = align_center
+                            elif col_idx in [7, 8, 9, 11, 14, 15]:
+                                cell.alignment = align_right
+                                cell.number_format = '#,##0'
+                            else:
+                                cell.alignment = align_center
+                                
+                        current_row += 1
+                        
+                        # 6. 左下の社名表記
+                        current_row += 1
+                        ws.cell(row=current_row, column=1, value="(株)中永製本所").font = font_corp
+
+                        # 列幅の設定（PDFの比率に近い幅を自動または固定で設定）
+                        col_widths_list = [14, 10, 16, 35, 12, 10, 12, 12, 12, 10, 12, 10, 12, 14, 14, 10]
+                        for i, w in enumerate(col_widths_list, start=1):
+                            ws.column_dimensions[get_column_letter(i)].width = w
+
                     excel_buffer = io.BytesIO()
                     wb.save(excel_buffer)
                     excel_buffer.seek(0)
