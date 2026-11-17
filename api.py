@@ -225,7 +225,7 @@ def build_flat_data(records):
                 "預かり在庫": h_deposit,
                 "納品部数": str(rec_88.get("field-88_4", "")),
                 "見本": str(rec_88.get("field-88_8", "")),
-                "納品総数": total_delivered,  # ★新規追加（書き戻し無）
+                "納品総数": total_delivered,
                 "在庫納品": bool(rec_88.get("field-88_6", False)),
                 "PL数": str(rec_88.get("field-88_7", "")),
                 "単価": h_tanka,
@@ -238,7 +238,7 @@ def build_flat_data(records):
 df_flat = pd.DataFrame(build_flat_data(api_records))
 
 # ==========================================
-# 共通の保存処理ヘルパー関数（自動計算のfield-96を除外）
+# 共通の保存処理ヘルパー関数
 # ==========================================
 def save_group_to_pocket(group_df, original_rec, record_id):
     update_url = f"{POCKET_BASE_URL}/api/apps/{APP_ID}/records/{record_id}"
@@ -332,7 +332,7 @@ with tab1:
             publisher_input = st.text_input("📖 出版社名で絞り込み", value="岩波書店", key="pub_ord")
         with col_s4:
             st.markdown("<br>", unsafe_allow_html=True)
-            only_nyuhin = st.checkbox("💡 入品日があるものだけ表示", value=False, help="チェックすると、取得したデータの中から入品日が入力されている行のみを表示します")
+            only_nyuhin = st.checkbox("💡 入品日があるものだけ表示", value=False)
         
         if st.button("🔄 検索実行", type="primary", key="btn_s1"):
             with st.spinner("@ポケットからデータを取得中..."):
@@ -355,12 +355,8 @@ with tab1:
             key="grid_flat_main",
             use_container_width=True,
             column_config={
-                "更新": st.column_config.CheckboxColumn("更新", required=True, help="チェックした行を@pocketに上書き保存"),
-                "@pocket詳細": st.column_config.LinkColumn(
-                    "🔗 @pocket編集", 
-                    display_text="📝 編集画面を開く", 
-                    help="クリックすると@pocketの編集画面を別タブで開きます"
-                ),
+                "更新": st.column_config.CheckboxColumn("更新", required=True),
+                "@pocket詳細": st.column_config.LinkColumn("🔗 @pocket編集", display_text="📝 編集画面を開く"),
                 "_record_idx": None, "_sub_idx": None, "_id_90": None, "_id_88": None,
                 "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
                 "受注日": st.column_config.DateColumn("受注日", format="YYYY-MM-DD", disabled=True),
@@ -452,12 +448,8 @@ with tab2:
             key="grid_t2_edit",
             use_container_width=True,
             column_config={
-                "更新": st.column_config.CheckboxColumn("更新", required=True, help="この行の変更を@pocketに書き戻す"),
-                "@pocket詳細": st.column_config.LinkColumn(
-                    "🔗 @pocket編集", 
-                    display_text="📝 編集画面を開く", 
-                    help="クリックすると@pocketの編集画面を別タブで開きます"
-                ),
+                "更新": st.column_config.CheckboxColumn("更新", required=True),
+                "@pocket詳細": st.column_config.LinkColumn("🔗 @pocket編集", display_text="📝 編集画面を開く"),
                 "_record_idx": None, "_sub_idx": None, "_id_90": None, "_id_88": None,
                 "受注番号": st.column_config.TextColumn("受注番号", disabled=True),
                 "受注日": st.column_config.DateColumn("受注日", format="YYYY-MM-DD", disabled=True),
@@ -526,76 +518,145 @@ with tab2:
             if output_format == "PDFで出力する":
                 if st.button("🚀 顧客別・便別 納品管理帳(予定表)PDFを生成 [A4横]", type="secondary", key="btn_generate_schedule_pdf"):
                     buffer_sch = io.BytesIO()
-                    doc_sch = SimpleDocTemplate(buffer_sch, pagesize=landscape(A4), rightMargin=15*mm, leftMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
+                    doc_sch = SimpleDocTemplate(
+                        buffer_sch, 
+                        pagesize=landscape(A4), 
+                        rightMargin=10*mm, 
+                        leftMargin=10*mm, 
+                        topMargin=15*mm, 
+                        bottomMargin=15*mm
+                    )
                     story_sch = []
                     
                     styles = getSampleStyleSheet()
-                    title_style = ParagraphStyle('JpTitle', parent=styles['Heading1'], fontName=JP_FONT, fontSize=15, leading=20, alignment=1)
-                    heading_style = ParagraphStyle('JpHeading', parent=styles['Heading2'], fontName=JP_FONT, fontSize=11, leading=15)
-                    cell_style = ParagraphStyle('JpCell', parent=styles['Normal'], fontName=JP_FONT, fontSize=8, leading=11)
-                    cell_right = ParagraphStyle('JpCellR', parent=styles['Normal'], fontName=JP_FONT, fontSize=8, leading=11, alignment=2)
+                    title_style = ParagraphStyle('JpTitle', parent=styles['Heading1'], fontName=JP_FONT, fontSize=14, leading=18, alignment=1)
+                    heading_style = ParagraphStyle('JpHeading', parent=styles['Heading2'], fontName=JP_FONT, fontSize=10, leading=14)
+                    cell_style = ParagraphStyle('JpCell', parent=styles['Normal'], fontName=JP_FONT, fontSize=7, leading=9)
+                    cell_right = ParagraphStyle('JpCellR', parent=styles['Normal'], fontName=JP_FONT, fontSize=7, leading=9, alignment=2)
+                    cell_center = ParagraphStyle('JpCellC', parent=styles['Normal'], fontName=JP_FONT, fontSize=7, leading=9, alignment=1)
 
-                    story_sch.append(Paragraph(f"<b>納品管理帳（予定表） （予定日: {target_date_str}）</b>", title_style))
-                    story_sch.append(Spacer(1, 6*mm))
+                    story_sch.append(Paragraph(f"<b>納品管理帳（予定／確定） （予定日: {target_date_str}）</b>", title_style))
+                    story_sch.append(Spacer(1, 4*mm))
                     
                     groups = list(df_t2_flat.groupby(["出版社名", "配車区分"]))
                     for idx, ((pub, vehicle), group) in enumerate(groups):
-                        story_sch.append(Paragraph(f"<b>■ 宛先（顧客）: {pub}  ／  配車便: {vehicle}</b>", heading_style))
-                        story_sch.append(Spacer(1, 2*mm))
+                        story_sch.append(Paragraph(f"<b>■ 宛先（顧客）: {pub} ／ 配車便: {vehicle}</b>", heading_style))
+                        story_sch.append(Spacer(1, 1*mm))
                         
-                        table_data = [[
-                            Paragraph("<b>判型 / 書名 / ISBN</b>", cell_style),
-                            Paragraph("<b>刷回</b>", cell_style),
-                            Paragraph("<b>定価</b>", cell_style),
-                            Paragraph("<b>印刷部数</b>", cell_style),
-                            Paragraph("<b>納品部数</b>", cell_style),
-                            Paragraph("<b>見本</b>", cell_style),
-                            Paragraph("<b>総部数</b>", cell_style),
-                            Paragraph("<b>単価</b>", cell_style),
-                            Paragraph("<b>預り在庫</b>", cell_style),
-                            Paragraph("<b>売上(納品金額)</b>", cell_style)
-                        ]]
+                        header_row = [
+                            Paragraph("<b>納品日</b>", cell_center),
+                            Paragraph("<b>判型</b>", cell_center),
+                            Paragraph("<b>ISBN</b>", cell_center),
+                            Paragraph("<b>書名</b>", cell_center),
+                            Paragraph("<b>印回</b>", cell_center),
+                            Paragraph("<b>定価</b>", cell_right),
+                            Paragraph("<b>印刷部数</b>", cell_right),
+                            Paragraph("<b>納品部数</b>", cell_right),
+                            Paragraph("<b>納品実績</b>", cell_right),
+                            Paragraph("<b>見本</b>", cell_right),
+                            Paragraph("<b>総部数</b>", cell_right),
+                            Paragraph("<b>単価</b>", cell_right),
+                            Paragraph("<b>預り在庫</b>", cell_right),
+                            Paragraph("<b>売上</b>", cell_right),
+                            Paragraph("<b>納品金額</b>", cell_right),
+                            Paragraph("<b>在庫金額</b>", cell_center),
+                        ]
+                        table_data = [header_row]
                         
+                        sum_print_qty = 0
+                        sum_delivery_qty = 0
+                        sum_actual_qty = 0
+                        sum_total_qty = 0
+                        sum_uriage = 0
+                        
+                        row_count = 0
                         for _, row in group.iterrows():
+                            row_count += 1
                             n_qty = safe_float(row.get("納品部数", 0))
                             m_qty = safe_float(row.get("見本", 0))
                             tanka = safe_float(row.get("単価", 0))
                             total_qty = int(n_qty + m_qty)
                             uriage = int(total_qty * tanka)
-
-                            format_val = row.get('判型', '')
-                            title_val = row.get('書名', '')
-                            isbn_val = row.get('ISBN', '')
                             
-                            book_info_html = f"[{format_val}] {title_val}<br/>(ISBN: {isbn_val})"
+                            sum_print_qty += safe_float(row.get("印刷部数", 0))
+                            sum_delivery_qty += n_qty
+                            sum_actual_qty += n_qty
+                            sum_total_qty += total_qty
+                            sum_uriage += uriage
+
+                            shusu_val = str(row.get("刷数", ""))
+                            shukai_val = str(row.get("刷回", ""))
+                            if shusu_val or shukai_val:
+                                inkai_str = f"{shusu_val}-回数{shukai_val}"
+                            else:
+                                inkai_str = ""
+
+                            n_date_val = row.get("納品日", "")
+                            n_date_str = str(n_date_val)[:10] if pd.notna(n_date_val) else ""
 
                             table_data.append([
-                                Paragraph(book_info_html, cell_style),
-                                Paragraph(str(row.get("刷回", "")), cell_style),
+                                Paragraph(n_date_str, cell_center),
+                                Paragraph(str(row.get("判型", "")), cell_center),
+                                Paragraph(str(row.get("ISBN", "")), cell_center),
+                                Paragraph(str(row.get("書名", "")), cell_style),
+                                Paragraph(inkai_str, cell_center),
                                 Paragraph(str(row.get("定価", "")), cell_right),
                                 Paragraph(str(row.get("印刷部数", "")), cell_right),
+                                Paragraph(str(row.get("納品部数", "")), cell_right),
                                 Paragraph(str(row.get("納品部数", "")), cell_right),
                                 Paragraph(str(row.get("見本", "")), cell_right),
                                 Paragraph(str(total_qty), cell_right),
                                 Paragraph(str(row.get("単価", "")), cell_right),
                                 Paragraph(str(row.get("預かり在庫", "")), cell_right),
                                 Paragraph(f"{uriage:,}", cell_right),
+                                Paragraph(f"{uriage:,}", cell_right),
+                                Paragraph("0", cell_center),
                             ])
                         
-                        schedule_table = Table(table_data, colWidths=[87*mm, 15*mm, 18*mm, 18*mm, 18*mm, 14*mm, 18*mm, 18*mm, 20*mm, 30*mm])
+                        while row_count < 20:
+                            row_count += 1
+                            table_data.append([Paragraph("", cell_style) for _ in range(16)])
+                        
+                        footer_row = [
+                            Paragraph("<b>合計</b>", cell_center),
+                            Paragraph("", cell_style),
+                            Paragraph("", cell_style),
+                            Paragraph("", cell_style),
+                            Paragraph("", cell_style),
+                            Paragraph("", cell_style),
+                            Paragraph(f"<b>{sum_print_qty:,.0f}</b>", cell_right),
+                            Paragraph(f"<b>{sum_delivery_qty:,.0f}</b>", cell_right),
+                            Paragraph(f"<b>{sum_actual_qty:,.0f}</b>", cell_right),
+                            Paragraph("", cell_style),
+                            Paragraph(f"<b>{sum_total_qty:,.0f}</b>", cell_right),
+                            Paragraph("", cell_style),
+                            Paragraph("", cell_style),
+                            Paragraph(f"<b>{sum_uriage:,.0f}</b>", cell_right),
+                            Paragraph(f"<b>{sum_uriage:,.0f}</b>", cell_right),
+                            Paragraph("", cell_style),
+                        ]
+                        table_data.append(footer_row)
+                        
+                        col_widths = [
+                            18*mm, 14*mm, 16*mm, 48*mm, 18*mm, 12*mm, 
+                            16*mm, 16*mm, 16*mm, 12*mm, 16*mm, 14*mm, 
+                            16*mm, 17*mm, 17*mm, 14*mm
+                        ]
+                        
+                        schedule_table = Table(table_data, colWidths=col_widths)
                         schedule_table.setStyle(TableStyle([
                             ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
                             ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+                            ('BACKGROUND', (0,-1), (-1,-1), colors.whitesmoke),
                             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                            ('TOPPADDING', (0,0), (-1,-1), 4),
-                            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                            ('TOPPADDING', (0,0), (-1,-1), 2.5),
+                            ('BOTTOMPADDING', (0,0), (-1,-1), 2.5),
                         ]))
                         
                         story_sch.append(schedule_table)
-                        story_sch.append(Spacer(1, 6*mm))
+                        story_sch.append(Spacer(1, 4*mm))
                         
-                        is_iwanami = ("岩波" in pub)
-                        if is_iwanami and idx < len(groups) - 1:
+                        if idx < len(groups) - 1:
                             story_sch.append(PageBreak())
 
                     doc_sch.build(story_sch)
@@ -695,15 +756,12 @@ with tab2:
                 st.success(f"🔒 番号死守ガード適用 ＆ @pocket自動保存完了")
                 
                 is_test_mode = "テスト用" in print_mode
-                if is_test_mode:
-                    slip_page_size = A4
-                else:
-                    slip_page_size = (170 * mm, 120 * mm)
+                slip_page_size = A4 if is_test_mode else (170 * mm, 120 * mm)
                 
                 doc_slip = SimpleDocTemplate(
                     buffer_slip := io.BytesIO(), 
                     pagesize=slip_page_size, 
-                    leftMargin=-2 * mm,   
+                    leftMargin=-2 * mm,  
                     rightMargin=5 * mm, 
                     topMargin=31.8 * mm,  
                     bottomMargin=0 * mm
@@ -711,23 +769,13 @@ with tab2:
                 story_slip = []
                 
                 styles = getSampleStyleSheet()
-                slip_cell_style = ParagraphStyle(
-                    'SlipCellCustom', 
-                    parent=styles['Normal'], 
-                    fontName=JP_FONT, 
-                    fontSize=7.5, 
-                    leading=9.5
-                )
-                slip_cell_right = ParagraphStyle(
-                    'SlipCellCustomR', 
-                    parent=slip_cell_style, 
-                    alignment=2
-                )
+                slip_cell_style = ParagraphStyle('SlipCellCustom', parent=styles['Normal'], fontName=JP_FONT, fontSize=7.5, leading=9.5)
+                slip_cell_right = ParagraphStyle('SlipCellCustomR', parent=slip_cell_style, alignment=2)
                 
                 for (pub, vehicle), group in df_t2_flat.groupby(["出版社名", "配車区分"]):
                     items = group.to_dict(orient="records")
                     
-                    CHUNK_SIZE = 6  # 6行固定
+                    CHUNK_SIZE = 6
                     for i in range(0, len(items), CHUNK_SIZE):
                         chunk = items[i:i + CHUNK_SIZE]
                         
@@ -736,18 +784,17 @@ with tab2:
                             isbn_val = item.get('ISBN', '')
                             format_val = item.get('判型', '')
                             col1_text = f"{isbn_val}<br/>{format_val}"
-                            
                             title_val = item.get('書名', '')
                             
                             row_cells = [
                                 Paragraph(col1_text, slip_cell_style),                 
-                                Paragraph(str(title_val), slip_cell_style),              
+                                Paragraph(str(title_val), slip_cell_style),             
                                 Paragraph(str(item.get('定価', '')), slip_cell_right),  
                                 Paragraph(str(item.get('刷数', '')), slip_cell_right),  
-                                Paragraph("", slip_cell_style),                        
+                                Paragraph("", slip_cell_style),                         
                                 Paragraph(str(item.get('納品部数', '')), slip_cell_right),
                                 Paragraph(str(item.get('PL数', '')), slip_cell_right),  
-                                Paragraph("", slip_cell_style),                        
+                                Paragraph("", slip_cell_style),                         
                                 Paragraph(str(item.get('見本', '')), slip_cell_right),  
                             ]
                             page_rows.append(row_cells)
@@ -756,20 +803,9 @@ with tab2:
                             empty_row = [Paragraph("", slip_cell_style) for _ in range(9)]
                             page_rows.append(empty_row)
                         
-                        col_widths = [
-                            19 * mm,  
-                            70 * mm,  
-                            15 * mm,  
-                            11 * mm,  
-                            15 * mm,  
-                            15 * mm,  
-                            8 * mm,   
-                            15 * mm,  
-                            7 * mm    
-                        ]
+                        col_widths = [19 * mm, 70 * mm, 15 * mm, 11 * mm, 15 * mm, 15 * mm, 8 * mm, 15 * mm, 7 * mm]
                         
                         slip_table = Table(page_rows, colWidths=col_widths, rowHeights=[10 * mm] * 6)
-                        
                         table_style_list = [
                             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
                             ('TOPPADDING', (0,0), (-1,-1), 1),
@@ -782,7 +818,6 @@ with tab2:
                             table_style_list.append(('INNERGRID', (0,0), (-1,-1), 0.25, colors.lightgrey))
                         
                         slip_table.setStyle(TableStyle(table_style_list))
-                        
                         story_slip.append(slip_table)
                         story_slip.append(PageBreak())
                 
