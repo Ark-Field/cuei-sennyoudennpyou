@@ -527,18 +527,19 @@ with tab2:
                     
                     styles = getSampleStyleSheet()
                     title_style = ParagraphStyle('JpTitle', parent=styles['Heading1'], fontName=JP_FONT, fontSize=14, leading=18, alignment=1)
-                    heading_style = ParagraphStyle('JpHeading', parent=styles['Heading2'], fontName=JP_FONT, fontSize=10, leading=14)
-                    cell_style = ParagraphStyle('JpCell', parent=styles['Normal'], fontName=JP_FONT, fontSize=7, leading=9)
-                    cell_right = ParagraphStyle('JpCellR', parent=styles['Normal'], fontName=JP_FONT, fontSize=7, leading=9, alignment=2)
-                    cell_center = ParagraphStyle('JpCellC', parent=styles['Normal'], fontName=JP_FONT, fontSize=7, leading=9, alignment=1)
+                    
+                    # 明細行：文字サイズ 8.5pt / 太字対応
+                    cell_style = ParagraphStyle('JpCell', parent=styles['Normal'], fontName=JP_FONT, fontSize=8.5, leading=11)
+                    cell_right = ParagraphStyle('JpCellR', parent=styles['Normal'], fontName=JP_FONT, fontSize=8.5, leading=11, alignment=2)
+                    cell_center = ParagraphStyle('JpCellC', parent=styles['Normal'], fontName=JP_FONT, fontSize=8.5, leading=11, alignment=1)
+                    
+                    footer_left_style = ParagraphStyle('FooterLeft', parent=styles['Normal'], fontName=JP_FONT, fontSize=7.5, leading=10, alignment=0)
 
                     story_sch.append(Paragraph(f"<b>納品管理帳（予定／確定） （予定日: {target_date_str}）</b>", title_style))
                     story_sch.append(Spacer(1, 4*mm))
                     
                     groups = list(df_t2_flat.groupby(["出版社名", "配車区分"]))
                     for idx, ((pub, vehicle), group) in enumerate(groups):
-                        story_sch.append(Paragraph(f"<b>■ 宛先（顧客）: {pub} ／ 配車便: {vehicle}</b>", heading_style))
-                        story_sch.append(Spacer(1, 1*mm))
                         
                         header_row = [
                             Paragraph("<b>納品日</b>", cell_center),
@@ -581,7 +582,7 @@ with tab2:
                             sum_total_qty += total_qty
                             sum_uriage += uriage
 
-                            # 印回：{刷数}-{刷回} （「回」の文字は含めない）
+                            # 印回：{刷数}-{刷回} （「回」の文字なし）
                             shusu_val = str(row.get("刷数", ""))
                             shukai_val = str(row.get("刷回", ""))
                             if shusu_val or shukai_val:
@@ -592,23 +593,24 @@ with tab2:
                             n_date_val = row.get("納品日", "")
                             n_date_str = str(n_date_val)[:10] if pd.notna(n_date_val) else ""
 
+                            # 太字(<b>)を適用
                             table_data.append([
-                                Paragraph(n_date_str, cell_center),
-                                Paragraph(str(row.get("判型", "")), cell_center),
-                                Paragraph(str(row.get("ISBN", "")), cell_center),
-                                Paragraph(str(row.get("書名", "")), cell_style),
-                                Paragraph(inkai_str, cell_center),
-                                Paragraph(str(row.get("定価", "")), cell_right),
-                                Paragraph(str(row.get("印刷部数", "")), cell_right),
-                                Paragraph(str(row.get("納品部数", "")), cell_right),
-                                Paragraph(str(row.get("納品部数", "")), cell_right),
-                                Paragraph(str(row.get("見本", "")), cell_right),
-                                Paragraph(str(total_qty), cell_right),
-                                Paragraph(str(row.get("単価", "")), cell_right),
-                                Paragraph(str(row.get("預かり在庫", "")), cell_right),
-                                Paragraph(f"{uriage:,}", cell_right),
-                                Paragraph(f"{uriage:,}", cell_right),
-                                Paragraph("0", cell_right), # 在庫金額 右寄せ
+                                Paragraph(f"<b>{n_date_str}</b>", cell_center),
+                                Paragraph(f"<b>{row.get('判型', '')}</b>", cell_center),
+                                Paragraph(f"<b>{row.get('ISBN', '')}</b>", cell_center),
+                                Paragraph(f"<b>{row.get('書名', '')}</b>", cell_style),
+                                Paragraph(f"<b>{inkai_str}</b>", cell_center),
+                                Paragraph(f"<b>{row.get('定価', '')}</b>", cell_right),
+                                Paragraph(f"<b>{row.get('印刷部数', '')}</b>", cell_right),
+                                Paragraph(f"<b>{row.get('納品部数', '')}</b>", cell_right),
+                                Paragraph(f"<b>{row.get('納品部数', '')}</b>", cell_right),
+                                Paragraph(f"<b>{row.get('見本', '')}</b>", cell_right),
+                                Paragraph(f"<b>{total_qty}</b>", cell_right),
+                                Paragraph(f"<b>{row.get('単価', '')}</b>", cell_right),
+                                Paragraph(f"<b>{row.get('預かり在庫', '')}</b>", cell_right),
+                                Paragraph(f"<b>{uriage:,}</b>", cell_right),
+                                Paragraph(f"<b>{uriage:,}</b>", cell_right),
+                                Paragraph("<b>0</b>", cell_right),
                             ])
                         
                         while row_count < 20:
@@ -641,8 +643,8 @@ with tab2:
                             16*mm, 17*mm, 17*mm, 14*mm
                         ]
                         
-                        # 行の高さを 8mm 固定に設定（全21行分）
-                        row_heights = [8*mm] * len(table_data)
+                        # 💡 行の高さを限界ギリギリの 6.3mm に設定
+                        row_heights = [6.3*mm] * len(table_data)
                         
                         schedule_table = Table(table_data, colWidths=col_widths, rowHeights=row_heights)
                         schedule_table.setStyle(TableStyle([
@@ -650,12 +652,16 @@ with tab2:
                             ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
                             ('BACKGROUND', (0,-1), (-1,-1), colors.whitesmoke),
                             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                            ('TOPPADDING', (0,0), (-1,-1), 1.5),
-                            ('BOTTOMPADDING', (0,0), (-1,-1), 1.5),
+                            ('TOPPADDING', (0,0), (-1,-1), 0.5),
+                            ('BOTTOMPADDING', (0,0), (-1,-1), 0.5),
                         ]))
                         
                         story_sch.append(schedule_table)
-                        story_sch.append(Spacer(1, 4*mm))
+                        story_sch.append(Spacer(1, 1.5*mm))
+                        
+                        # 表の左下に (株)中永製本所 を配置
+                        story_sch.append(Paragraph("(株)中永製本所", footer_left_style))
+                        story_sch.append(Spacer(1, 3*mm))
                         
                         if idx < len(groups) - 1:
                             story_sch.append(PageBreak())
