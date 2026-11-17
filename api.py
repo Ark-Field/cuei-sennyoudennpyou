@@ -195,7 +195,6 @@ def build_flat_data(records):
             if not haisha_val or haisha_val.lower() in ["nan", "none", ""]:
                 haisha_val = ""
 
-            # 納品部数 + 見本 = 納品総数の算出
             n_qty_val = safe_float(rec_88.get("field-88_4", ""))
             m_qty_val = safe_float(rec_88.get("field-88_8", ""))
             total_delivered = int(n_qty_val + m_qty_val)
@@ -220,8 +219,8 @@ def build_flat_data(records):
                 "予定日": parse_date_safe(rec_90.get("field-90_8")),
                 "入品日": parse_date_safe(rec_90.get("field-90_10")),
                 "納品日": parse_date_safe(rec_88.get("field-88_2")),
-                "刷数": h_shusu,    # field-28
-                "刷回": h_shukai,  # field-96 (自動計算)
+                "刷数": h_shusu,
+                "刷回": h_shukai,
                 "預かり在庫": h_deposit,
                 "納品部数": str(rec_88.get("field-88_4", "")),
                 "見本": str(rec_88.get("field-88_8", "")),
@@ -257,7 +256,6 @@ def save_group_to_pocket(group_df, original_rec, record_id):
         "field-93": str(first_row["ISBN"]),
     }
     
-    # 予定日・入品日（field-90）のサブテーブル構築
     orig_sub_90 = original_rec.get("field-90", [])
     sub90_list = []
     for _, row in group_df.iterrows():
@@ -271,7 +269,6 @@ def save_group_to_pocket(group_df, original_rec, record_id):
         sub90_list.append(item_90)
     record_payload["field-90"] = sub90_list
 
-    # 納品（field-88）のサブテーブル構築
     orig_sub_88 = original_rec.get("field-88", [])
     sub88_list = []
     for _, row in group_df.iterrows():
@@ -559,7 +556,7 @@ with tab2:
                             Paragraph("<b>預り在庫</b>", cell_right),
                             Paragraph("<b>売上</b>", cell_right),
                             Paragraph("<b>納品金額</b>", cell_right),
-                            Paragraph("<b>在庫金額</b>", cell_center),
+                            Paragraph("<b>在庫金額</b>", cell_right),
                         ]
                         table_data = [header_row]
                         
@@ -584,10 +581,11 @@ with tab2:
                             sum_total_qty += total_qty
                             sum_uriage += uriage
 
+                            # 印回：{刷数}-{刷回} （「回」の文字は含めない）
                             shusu_val = str(row.get("刷数", ""))
                             shukai_val = str(row.get("刷回", ""))
                             if shusu_val or shukai_val:
-                                inkai_str = f"{shusu_val}-回数{shukai_val}"
+                                inkai_str = f"{shusu_val}-{shukai_val}"
                             else:
                                 inkai_str = ""
 
@@ -610,7 +608,7 @@ with tab2:
                                 Paragraph(str(row.get("預かり在庫", "")), cell_right),
                                 Paragraph(f"{uriage:,}", cell_right),
                                 Paragraph(f"{uriage:,}", cell_right),
-                                Paragraph("0", cell_center),
+                                Paragraph("0", cell_right), # 在庫金額 右寄せ
                             ])
                         
                         while row_count < 20:
@@ -643,14 +641,17 @@ with tab2:
                             16*mm, 17*mm, 17*mm, 14*mm
                         ]
                         
-                        schedule_table = Table(table_data, colWidths=col_widths)
+                        # 行の高さを 8mm 固定に設定（全21行分）
+                        row_heights = [8*mm] * len(table_data)
+                        
+                        schedule_table = Table(table_data, colWidths=col_widths, rowHeights=row_heights)
                         schedule_table.setStyle(TableStyle([
                             ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
                             ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
                             ('BACKGROUND', (0,-1), (-1,-1), colors.whitesmoke),
                             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                            ('TOPPADDING', (0,0), (-1,-1), 2.5),
-                            ('BOTTOMPADDING', (0,0), (-1,-1), 2.5),
+                            ('TOPPADDING', (0,0), (-1,-1), 1.5),
+                            ('BOTTOMPADDING', (0,0), (-1,-1), 1.5),
                         ]))
                         
                         story_sch.append(schedule_table)
