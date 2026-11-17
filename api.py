@@ -528,23 +528,27 @@ with tab2:
                     styles = getSampleStyleSheet()
                     title_style = ParagraphStyle('JpTitle', parent=styles['Heading1'], fontName=JP_FONT, fontSize=14, leading=18, alignment=1)
                     
-                    # 明細行：文字サイズ 8.5pt / 太字対応
+                    # 7.5pt用スタイル（納品日・判型・ISBN）
+                    cell_75_center = ParagraphStyle('JpCell75C', parent=styles['Normal'], fontName=JP_FONT, fontSize=7.5, leading=9.5, alignment=1)
+                    
+                    # 8.5pt用スタイル（その他の明細用）
                     cell_style = ParagraphStyle('JpCell', parent=styles['Normal'], fontName=JP_FONT, fontSize=8.5, leading=11)
                     cell_right = ParagraphStyle('JpCellR', parent=styles['Normal'], fontName=JP_FONT, fontSize=8.5, leading=11, alignment=2)
                     cell_center = ParagraphStyle('JpCellC', parent=styles['Normal'], fontName=JP_FONT, fontSize=8.5, leading=11, alignment=1)
                     
                     footer_left_style = ParagraphStyle('FooterLeft', parent=styles['Normal'], fontName=JP_FONT, fontSize=7.5, leading=10, alignment=0)
 
-                    story_sch.append(Paragraph(f"<b>納品管理帳（予定／確定） （予定日: {target_date_str}）</b>", title_style))
+                    # 💡 シンプルなタイトル（納品管理帳 【2026/00/00】形式）
+                    story_sch.append(Paragraph(f"<b>納品管理帳 【{target_date_str}】</b>", title_style))
                     story_sch.append(Spacer(1, 4*mm))
                     
                     groups = list(df_t2_flat.groupby(["出版社名", "配車区分"]))
                     for idx, ((pub, vehicle), group) in enumerate(groups):
                         
                         header_row = [
-                            Paragraph("<b>納品日</b>", cell_center),
-                            Paragraph("<b>判型</b>", cell_center),
-                            Paragraph("<b>ISBN</b>", cell_center),
+                            Paragraph("<b>納品日</b>", cell_75_center),
+                            Paragraph("<b>判型</b>", cell_75_center),
+                            Paragraph("<b>ISBN</b>", cell_75_center),
                             Paragraph("<b>書名</b>", cell_center),
                             Paragraph("<b>印回</b>", cell_center),
                             Paragraph("<b>定価</b>", cell_right),
@@ -593,11 +597,10 @@ with tab2:
                             n_date_val = row.get("納品日", "")
                             n_date_str = str(n_date_val)[:10] if pd.notna(n_date_val) else ""
 
-                            # 太字(<b>)を適用
                             table_data.append([
-                                Paragraph(f"<b>{n_date_str}</b>", cell_center),
-                                Paragraph(f"<b>{row.get('判型', '')}</b>", cell_center),
-                                Paragraph(f"<b>{row.get('ISBN', '')}</b>", cell_center),
+                                Paragraph(f"<b>{n_date_str}</b>", cell_75_center),
+                                Paragraph(f"<b>{row.get('判型', '')}</b>", cell_75_center),
+                                Paragraph(f"<b>{row.get('ISBN', '')}</b>", cell_75_center),
                                 Paragraph(f"<b>{row.get('書名', '')}</b>", cell_style),
                                 Paragraph(f"<b>{inkai_str}</b>", cell_center),
                                 Paragraph(f"<b>{row.get('定価', '')}</b>", cell_right),
@@ -643,7 +646,6 @@ with tab2:
                             16*mm, 17*mm, 17*mm, 14*mm
                         ]
                         
-                        # 💡 行の高さを限界ギリギリの 6.3mm に設定
                         row_heights = [6.3*mm] * len(table_data)
                         
                         schedule_table = Table(table_data, colWidths=col_widths, rowHeights=row_heights)
